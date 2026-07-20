@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CNC Audio</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d0d0f;
+    --surface:   #16181d;
+    --surface2:  #1e2128;
+    --border:    #2a2d36;
+    --accent:    #00d4b4;
+    --accent2:   #0099ff;
+    --danger:    #ff4d4d;
+    --warn:      #f5a623;
+    --text:      #e8eaf0;
+    --text-dim:  #7a7f8e;
+    --radius:    8px;
+    --font:      'Inter', system-ui, sans-serif;
+  }
+
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 0 24px; height: 56px; display: flex; align-items: center; gap: 16px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; white-space: nowrap; }
+  .logo span { color: var(--text-dim); font-weight: 400; }
+  .project-name-input {
+    background: transparent; border: none; outline: none; color: var(--text); font-size: 14px;
+    font-family: var(--font); flex: 1; max-width: 280px;
+  }
+  .project-name-input::placeholder { color: var(--text-dim); }
+  .header-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  .main { display: grid; grid-template-columns: 320px 1fr; gap: 0; height: calc(100vh - 56px); }
+
+  /* Sidebar */
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Content */
+  .content { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Panels */
+  .panel { border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .panel-header {
+    padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+    font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim);
+  }
+  .panel-header:hover { background: var(--surface2); }
+  .panel-header .chevron { transition: transform 0.2s; font-size: 10px; }
+  .panel-body { padding: 12px 16px; }
+  .panel-body.hidden { display: none; }
+
+  /* Upload */
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius); padding: 20px 16px;
+    text-align: center; cursor: pointer; transition: all 0.2s; margin: 12px 16px; flex-shrink: 0;
+  }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: rgba(0,212,180,0.05); }
+  .upload-zone .icon { font-size: 24px; margin-bottom: 6px; }
+  .upload-zone p { color: var(--text-dim); font-size: 12px; line-height: 1.6; }
+  .upload-zone strong { color: var(--accent); }
+
+  /* Clip list */
+  .clip-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; min-height: 0; }
+  .clip-item {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; margin-bottom: 6px;
+  }
+  .clip-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .clip-icon { font-size: 16px; flex-shrink: 0; }
+  .clip-name { font-size: 13px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .clip-duration { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+  .clip-delete { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 14px; line-height: 1; }
+  .clip-delete:hover { color: var(--danger); background: rgba(255,77,77,0.1); }
+  .clip-weight-row { display: flex; align-items: center; gap: 8px; }
+  .clip-weight-row label { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+  .clip-weight-row input[type=range] { flex: 1; accent-color: var(--accent); }
+  .clip-weight-val { font-size: 11px; color: var(--accent); width: 28px; text-align: right; }
+
+  /* Scrollable params area */
+  .params-scroll { overflow-y: auto; flex: 1; min-height: 0; }
+
+  /* Form */
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .form-row .hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+  .form-row-inline { display: flex; gap: 8px; margin-bottom: 12px; }
+  .form-row-inline .form-row { flex: 1; margin-bottom: 0; }
+
+  input[type=number], input[type=text], select {
+    width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: var(--font); font-size: 13px; padding: 7px 10px; outline: none; transition: border-color 0.15s;
+  }
+  input[type=number]:focus, input[type=text]:focus, select:focus { border-color: var(--accent); }
+  select option { background: var(--surface2); }
+  input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+
+  .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .toggle-row > label:last-child { font-size: 13px; cursor: pointer; }
+  .toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 20px; cursor: pointer; transition: 0.2s; }
+  .toggle-slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .toggle-slider { background: var(--accent); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+  .seed-row { display: flex; gap: 6px; }
+  .seed-row input { flex: 1; font-family: monospace; font-size: 12px; }
+  .range-display { font-size: 12px; color: var(--accent); float: right; font-family: monospace; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: none; border-radius: var(--radius); font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; padding: 9px 18px; transition: all 0.15s; white-space: nowrap; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover:not(:disabled) { background: #00f0cc; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-icon { padding: 7px 10px; border-radius: 6px; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+  /* Feasibility */
+  .feasibility-box { border-radius: var(--radius); padding: 10px 14px; font-size: 12px; line-height: 1.5; }
+  .feasibility-ok { background: rgba(0,212,180,0.1); border: 1px solid rgba(0,212,180,0.3); color: var(--accent); }
+  .feasibility-warn { background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.3); color: var(--warn); }
+  .feasibility-err { background: rgba(255,77,77,0.1); border: 1px solid rgba(255,77,77,0.3); color: var(--danger); }
+  .feasibility-box ul { margin: 4px 0 0 16px; }
+  .feasibility-box li { margin-bottom: 2px; }
+
+  /* Actions bar */
+  .actions-bar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+
+  /* Timeline */
+  .timeline-section { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .timeline-header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
+  .timeline-header strong { color: var(--text); font-size: 13px; text-transform: none; letter-spacing: 0; }
+  .timeline-events { flex: 1; overflow-y: auto; padding: 12px 20px; }
+  .tl-empty { text-align: center; color: var(--text-dim); padding: 60px 20px; }
+  .tl-empty .big { font-size: 48px; margin-bottom: 12px; }
+
+  .tl-event { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px; margin-bottom: 4px; border: 1px solid var(--border); background: var(--surface2); }
+  .tl-event.silence { background: transparent; border-style: dashed; opacity: 0.5; }
+  .tl-event-pos { font-size: 11px; color: var(--text-dim); width: 52px; flex-shrink: 0; font-family: monospace; }
+  .tl-event-bar { flex: 1; }
+  .tl-event-fill { height: 22px; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #000; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .tl-event-meta { font-size: 11px; color: var(--text-dim); width: 130px; flex-shrink: 0; text-align: right; white-space: nowrap; }
+
+  /* Player */
+  .player-section { background: var(--surface); border-top: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+  .play-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border: none; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: 0.15s; }
+  .play-btn:hover:not(:disabled) { background: #00f0cc; transform: scale(1.05); }
+  .play-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+  .player-info { min-width: 140px; }
+  .player-title { font-size: 13px; font-weight: 600; }
+  .player-sub { font-size: 11px; color: var(--text-dim); }
+  .player-progress { flex: 1; height: 4px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
+  .player-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; }
+  .player-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; font-family: monospace; }
+
+  /* Toast */
+  .toast-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
+  .toast { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; font-size: 13px; max-width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,0.5); animation: slideIn 0.2s ease; line-height: 1.4; }
+  .toast.success { border-left: 3px solid var(--accent); }
+  .toast.error { border-left: 3px solid var(--danger); }
+  .toast.warn { border-left: 3px solid var(--warn); }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.3); border-top-color: currentColor; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CNC<span> Audio</span></div>
+  <span style="color:var(--border)">|</span>
+  <input class="project-name-input" id="projectName" type="text" placeholder="Project name..." value="Untitled Project">
+  <div class="header-actions">
+    <span id="statusBadge" style="font-size:12px;color:var(--text-dim)">Starting...</span>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- ===== LEFT SIDEBAR ===== -->
+  <div class="sidebar">
+
+    <!-- Clip Library header -->
+    <div class="panel">
+      <div class="panel-header" style="cursor:default">
+        Clip Library
+        <span id="clipCount" style="color:var(--accent);font-size:12px;font-weight:700"></span>
+      </div>
+    </div>
+
+    <!-- Upload zone -->
+    <div id="uploadZone" class="upload-zone" onclick="document.getElementById('fileInput').click()">
+      <div class="icon">+</div>
+      <p><strong>Click or drag &amp; drop</strong><br>
+      Audio: MP3, WAV, FLAC, AAC, OGG<br>
+      Video: MP4, MOV, AVI, MKV (audio extracted)</p>
+    </div>
+    <input type="file" id="fileInput" multiple accept="audio/*,video/*" style="display:none">
+
+    <!-- Clip cards -->
+    <div class="clip-list" id="clipList">
+      <div id="clipEmpty" style="text-align:center;color:var(--text-dim);padding:20px 8px;font-size:12px;">
+        Upload clips to begin
+      </div>
+    </div>
+
+    <!-- Scrollable parameters -->
+    <div class="params-scroll">
+
+      <!-- Track Duration -->
+      <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">Track Duration <span class="chevron">v</span></div>
+        <div class="panel-body">
+          <div class="form-row">
+            <label>Total Length <span class="range-display" id="durationDisplay">60s</span></label>
+            <input type="range" id="targetDuration" min="10" max="3600" value="60" step="5"
+              oninput="el('durationDisplay').textContent=fmtSec(+this.value); debounceParams()">
+          </div>
+          <div class="form-row-inline">
+            <div class="form-row">
+              <label>Clip Min <span class="range-display" id="clipMinD">2.0s</span></label>
+              <input type="range" id="clipMin" min="0.5" max="60" value="2" step="0.5"
+                oninput="el('clipMinD').textContent=this.value+'s'; debounceParams()">
+            </div>
+            <div class="form-row">
+              <label>Clip Max <span class="range-display" id="clipMaxD">8.0s</span></label>
+              <input type="range" id="clipMax" min="1" max="120" value="8" step="0.5"
+                oninput="el('clipMaxD').textContent=this.value+'s'; debounceParams()">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>End Rule</label>
+            <select id="durationRule" onchange="debounceParams()">
+              <option value="fade_last">Fade out last clip</option>
+              <option value="trim_last">Hard cut</option>
+              <option value="pad_silence">Pad with silence</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selection -->
+      <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">Selection <span class="chevron">v</span></div>
+        <div class="panel-body">
+          <div class="form-row">
+            <label>Mode</label>
+            <select id="distribution" onchange="debounceParams()">
+              <option value="weighted">Weighted (by clip weight)</option>
+              <option value="uniform">Uniform (equal chance)</option>
+              <option value="sequential">Sequential (in order)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Chaos <span class="range-display" id="chaosD">0.50</span></label>
+            <input type="range" id="chaos" min="0" max="1" value="0.5" step="0.05"
+              oninput="el('chaosD').textContent=(+this.value).toFixed(2); debounceParams()">
+            <div class="hint">0 = structured &nbsp;&#183;&nbsp; 1 = fully random</div>
+          </div>
+          <div class="form-row-inline">
+            <div class="form-row">
+              <label>Max Repeats</label>
+              <input type="number" id="maxPerClip" value="" min="1" max="999" placeholder="inf" oninput="debounceParams()">
+            </div>
+            <div class="form-row">
+              <label>Min Gap</label>
+              <input type="number" id="minGapClips" value="0" min="0" max="50" oninput="debounceParams()">
+            </div>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" id="allowConsecutive" onchange="debounceParams()"><span class="toggle-slider"></span></label>
+            <label for="allowConsecutive">Allow back-to-back repeats</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Crossfade -->
+      <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">Crossfade <span class="chevron">v</span></div>
+        <div class="panel-body">
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" id="crossfadeEnabled" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
+            <label for="crossfadeEnabled">Enable crossfades</label>
+          </div>
+          <div class="form-row">
+            <label>Probability <span class="range-display" id="xfadeProbD">80%</span></label>
+            <input type="range" id="crossfadeProb" min="0" max="1" value="0.8" step="0.05"
+              oninput="el('xfadeProbD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
+          </div>
+          <div class="form-row-inline">
+            <div class="form-row">
+              <label>Min <span class="range-display" id="xfadeMinD">0.1s</span></label>
+              <input type="range" id="crossfadeMin" min="0.05" max="5" value="0.1" step="0.05"
+                oninput="el('xfadeMinD').textContent=this.value+'s'; debounceParams()">
+            </div>
+            <div class="form-row">
+              <label>Max <span class="range-display" id="xfadeMaxD">2.0s</span></label>
+              <input type="range" id="crossfadeMax" min="0.1" max="10" value="2.0" step="0.1"
+                oninput="el('xfadeMaxD').textContent=this.value+'s'; debounceParams()">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Silence -->
+      <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">Silence Gaps <span class="chevron">v</span></div>
+        <div class="panel-body">
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" id="silenceEnabled" onchange="debounceParams()"><span class="toggle-slider"></span></label>
+            <label for="silenceEnabled">Insert silence gaps</label>
+          </div>
+          <div class="form-row">
+            <label>Probability <span class="range-display" id="silProbD">30%</span></label>
+            <input type="range" id="silenceProb" min="0" max="1" value="0.3" step="0.05"
+              oninput="el('silProbD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
+          </div>
+          <div class="form-row-inline">
+            <div class="form-row">
+              <label>Min <span class="range-display" id="silMinD">0.2s</span></label>
+              <input type="range" id="silenceMin" min="0.1" max="5" value="0.2" step="0.1"
+                oninput="el('silMinD').textContent=this.value+'s'; debounceParams()">
+            </div>
+            <div class="form-row">
+              <label>Max <span class="range-display" id="silMaxD">2.0s</span></label>
+              <input type="range" id="silenceMax" min="0.1" max="30" value="2.0" step="0.1"
+                oninput="el('silMaxD').textContent=this.value+'s'; debounceParams()">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gain -->
+      <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">Gain <span class="chevron">v</span></div>
+        <div class="panel-body">
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" id="normalize" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
+            <label for="normalize">Normalize clip loudness</label>
+          </div>
+          <div class="form-row">
+            <label>Target Loudness <span class="range-display" id="targetLufsD">-18 LUFS</span></label>
+            <input type="range" id="targetLufs" min="-40" max="-6" value="-18" step="1"
+              oninput="el('targetLufsD').textContent=this.value+' LUFS'; debounceParams()">
+          </div>
+          <div class="form-row">
+            <label>Random Variation <span class="range-display" id="gainVarD">+/-0 dB</span></label>
+            <input type="range" id="gainVariation" min="0" max="12" value="0" step="0.5"
+              oninput="el('gainVarD').textContent='+/-'+this.value+' dB'; debounceParams()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Seed -->
+      <div class="panel">
+        <div class="panel-header" onclick="togglePanel(this)">Seed <span class="chevron">v</span></div>
+        <div class="panel-body">
+          <div class="form-row">
+            <label>Generation Seed</label>
+            <div class="seed-row">
+              <input type="text" id="seedInput" value="my-show-seed" placeholder="Enter seed..." oninput="debounceSeed()">
+              <button class="btn btn-secondary btn-icon" onclick="randomizeSeed()" title="Random seed">?</button>
+            </div>
+            <div class="hint">Same seed + same clips + same params = same track every time</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /params-scroll -->
+  </div><!-- /sidebar -->
+
+  <!-- ===== RIGHT CONTENT ===== -->
+  <div class="content">
+
+    <!-- Actions bar -->
+    <div class="actions-bar">
+      <div id="feasibilityDisplay" style="flex:1;min-width:0">
+        <div class="feasibility-box" style="background:transparent;border:none;color:var(--text-dim);font-size:12px;">Starting...</div>
+      </div>
+      <button class="btn btn-secondary" id="generateBtn" onclick="doGenerate()" disabled>Generate</button>
+      <button class="btn btn-primary" id="renderBtn" onclick="doRender()" disabled>Render</button>
+    </div>
+
+    <!-- Timeline view -->
+    <div class="timeline-section">
+      <div class="timeline-header">
+        <strong id="tlTitle">Timeline</strong>
+        <span id="tlMeta" style="color:var(--text-dim)"></span>
+        <span style="flex:1"></span>
+        <span id="tlSeed" style="font-family:monospace;font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div class="timeline-events" id="timelineEvents">
+        <div class="tl-empty">
+          <div class="big">[ ]</div>
+          <p style="font-size:15px;">Import clips, adjust parameters, then hit <strong>Generate</strong></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio player -->
+    <div class="player-section">
+      <audio id="audioPlayer"></audio>
+      <button class="play-btn" id="playBtn" onclick="togglePlay()" disabled title="Play / Pause">&#9654;</button>
+      <div class="player-info">
+        <div class="player-title" id="playerTitle">No render yet</div>
+        <div class="player-sub" id="playerSub">Generate and render a timeline to hear your track</div>
+      </div>
+      <div class="player-progress" id="playerProgress" onclick="seekAudio(event)">
+        <div class="player-progress-fill" id="progressFill"></div>
+      </div>
+      <span class="player-time" id="playerTime">0:00 / 0:00</span>
+      <a id="downloadBtn" style="display:none" class="btn btn-secondary btn-sm" download="cnc-audio.wav">Download WAV</a>
+    </div>
+
+  </div><!-- /content -->
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// Helpers
+const el = id => document.getElementById(id);
+function fmtSec(s) {
+  if (!isFinite(s) || s == null) return '--';
+  const m = Math.floor(s / 60), sec = (s % 60).toFixed(1);
+  return m ? `${m}m ${sec}s` : `${sec}s`;
+}
+function fmtTime(s) {
+  if (!isFinite(s)) return '0:00';
+  return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+}
+async function api(method, url, body) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.detail || 'API error'); e.detail = data.detail; throw e; }
+  return data;
+}
+let _toastId = 0;
+function toast(msg, type='success', ms=4500) {
+  const id = ++_toastId;
+  const div = Object.assign(document.createElement('div'), {className:`toast ${type}`, textContent:msg, id:`t${id}`});
+  el('toastContainer').appendChild(div);
+  if (ms > 0) setTimeout(() => div.remove(), ms);
+  return id;
+}
+
+// State
+let projectId = null;
+const COLORS = ['#00d4b4','#0099ff','#f5a623','#b44fff','#ff6b6b','#44d62c','#ff9f43','#54a0ff'];
+const clipColors = {};
+let colorIdx = 0;
+
+// Boot
+window.addEventListener('DOMContentLoaded', async () => {
+  const res = await api('POST', '/api/projects', {name: 'Untitled Project'});
+  projectId = res.id;
+  el('statusBadge').textContent = `Session: ${projectId.slice(0,8)}`;
+  setupDragDrop();
+  setupPlayer();
+  await checkFeasibility();
+});
+
+// Upload
+el('fileInput').addEventListener('change', e => { uploadFiles([...e.target.files]); e.target.value=''; });
+
+function setupDragDrop() {
+  const zone = el('uploadZone');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); uploadFiles([...e.dataTransfer.files]); });
+}
+
+async function uploadFiles(files) {
+  for (const f of files) {
+    const tid = toast(`Importing "${f.name}"...`, 'warn', 0);
+    try {
+      const fd = new FormData(); fd.append('file', f);
+      const r = await fetch(`/api/projects/${projectId}/assets`, {method:'POST', body:fd});
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || 'Import failed');
+      el(`t${tid}`)?.remove();
+      toast(`OK "${data.name}" - ${fmtSec(data.duration_seconds)}`, 'success');
+    } catch(e) {
+      el(`t${tid}`)?.remove();
+      toast(`Import failed: ${e.message}`, 'error');
+    }
+  }
+  await refreshProject();
+  await checkFeasibility();
+}
+
+async function deleteAsset(assetId) {
+  await api('DELETE', `/api/projects/${projectId}/assets/${assetId}`);
+  await refreshProject();
+  await checkFeasibility();
+}
+
+async function refreshProject() {
+  const p = await api('GET', `/api/projects/${projectId}`);
+  renderClipList(p.assets || []);
+  if (p.timeline) renderTimeline(p);
+  return p;
+}
+
+function renderClipList(assets) {
+  el('clipCount').textContent = assets.length ? `(${assets.length})` : '';
+  if (!assets.length) {
+    el('clipList').innerHTML = '<div id="clipEmpty" style="text-align:center;color:var(--text-dim);padding:20px 8px;font-size:12px;">Upload clips to begin</div>';
+    return;
+  }
+  el('clipList').innerHTML = assets.map(a => {
+    if (!clipColors[a.id]) clipColors[a.id] = COLORS[colorIdx++ % COLORS.length];
+    const c = clipColors[a.id];
+    return `
+    <div class="clip-item">
+      <div class="clip-item-header">
+        <span class="clip-icon" style="color:${c}">&#9632;</span>
+        <span class="clip-name" title="${a.name}">${a.name}</span>
+        <span class="clip-duration">${fmtSec(a.duration_seconds)}</span>
+        <button class="clip-delete" onclick="deleteAsset('${a.id}')">x</button>
+      </div>
+      <div class="clip-weight-row">
+        <label>Weight</label>
+        <input type="range" min="0.1" max="5" step="0.1" value="${a.weight}"
+          oninput="this.nextElementSibling.textContent=parseFloat(this.value).toFixed(1)+'x'; el('w${a.id}').value=this.value; debounceParams()">
+        <span class="clip-weight-val">${parseFloat(a.weight).toFixed(1)}x</span>
+        <input type="hidden" id="w${a.id}" value="${a.weight}">
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Parameters
+let pTimer, sTimer;
+function debounceParams() { clearTimeout(pTimer); pTimer = setTimeout(saveParams, 500); }
+function debounceSeed()   { clearTimeout(sTimer); sTimer = setTimeout(saveSeed, 500); }
+
+function getWeights() {
+  const w = {};
+  document.querySelectorAll('[id^="w"]').forEach(inp => {
+    const id = inp.id.slice(1);
+    if (id) w[id] = parseFloat(inp.value);
+  });
+  return w;
+}
+
+async function saveParams() {
+  if (!projectId) return;
+  const body = {
+    target_duration_seconds: parseFloat(el('targetDuration').value),
+    clip_duration_min: parseFloat(el('clipMin').value),
+    clip_duration_max: parseFloat(el('clipMax').value),
+    duration_rule: el('durationRule').value,
+    distribution: el('distribution').value,
+    chaos: parseFloat(el('chaos').value),
+    max_per_clip: el('maxPerClip').value ? parseInt(el('maxPerClip').value) : null,
+    min_gap_clips: parseInt(el('minGapClips').value) || 0,
+    allow_consecutive: el('allowConsecutive').checked,
+    crossfade_enabled: el('crossfadeEnabled').checked,
+    crossfade_probability: parseFloat(el('crossfadeProb').value),
+    crossfade_min: parseFloat(el('crossfadeMin').value),
+    crossfade_max: parseFloat(el('crossfadeMax').value),
+    silence_enabled: el('silenceEnabled').checked,
+    silence_probability: parseFloat(el('silenceProb').value),
+    silence_min: parseFloat(el('silenceMin').value),
+    silence_max: parseFloat(el('silenceMax').value),
+    normalize: el('normalize').checked,
+    target_lufs: parseFloat(el('targetLufs').value),
+    max_gain_db: 12,
+    random_variation_db: parseFloat(el('gainVariation').value),
+    asset_weights: getWeights(),
+  };
+  try { await api('PUT', `/api/projects/${projectId}/parameters`, body); await checkFeasibility(); }
+  catch(e) { /* silent */ }
+}
+
+async function saveSeed() {
+  if (!projectId) return;
+  const seed = el('seedInput').value.trim() || 'default';
+  await api('PUT', `/api/projects/${projectId}/seed`, {seed});
+  el('tlSeed').textContent = `seed: ${seed}`;
+}
+
+function randomizeSeed() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  el('seedInput').value = Array.from({length:12}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
+  saveSeed();
+}
+
+// Feasibility
+async function checkFeasibility() {
+  if (!projectId) return;
+  try {
+    const r = await api('GET', `/api/projects/${projectId}/feasibility`);
+    const box = el('feasibilityDisplay');
+    if (!document.querySelectorAll('.clip-item').length) {
+      box.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:2px 0">Import clips to begin</div>';
+      el('generateBtn').disabled = true;
+    } else if (r.feasible && !r.warnings.length) {
+      box.innerHTML = '<div class="feasibility-box feasibility-ok">Ready to generate</div>';
+      el('generateBtn').disabled = false;
+    } else if (r.feasible) {
+      box.innerHTML = `<div class="feasibility-box feasibility-warn">Ready (with warnings)<ul>${r.warnings.map(w=>`<li>${w}</li>`).join('')}</ul></div>`;
+      el('generateBtn').disabled = false;
+    } else {
+      box.innerHTML = `<div class="feasibility-box feasibility-err">Cannot generate<ul>${r.errors.map(e=>`<li>${e}</li>`).join('')}</ul></div>`;
+      el('generateBtn').disabled = true;
+    }
+  } catch(e) { /* silent */ }
+}
+
+// Generate
+async function doGenerate() {
+  const btn = el('generateBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Generating...';
+  try {
+    await saveParams();
+    await saveSeed();
+    const res = await api('POST', `/api/projects/${projectId}/generate`);
+    const p = await api('GET', `/api/projects/${projectId}`);
+    renderTimeline(p);
+    el('renderBtn').disabled = false;
+    toast(`Generated: ${res.clip_count} clips - ${fmtSec(res.total_duration_seconds)}`, 'success');
+    if (res.warnings?.length) res.warnings.forEach(w => toast('Warning: ' + w, 'warn'));
+  } catch(e) {
+    const d = e.detail;
+    if (d?.errors) toast('Error: ' + d.errors[0], 'error');
+    else toast('Generate failed: ' + (d || e.message), 'error');
+  }
+  btn.innerHTML = 'Generate'; btn.disabled = false;
+}
+
+function renderTimeline(project) {
+  const tl = project.timeline;
+  if (!tl) return;
+  const assetMap = {};
+  (project.assets || []).forEach(a => assetMap[a.id] = a);
+
+  el('tlTitle').textContent = `Timeline - ${fmtSec(tl.total_duration_seconds)}`;
+  el('tlMeta').textContent = `${tl.events.filter(e=>e.type==='clip').length} clips / ${tl.events.filter(e=>e.type==='silence').length} silences`;
+  el('tlSeed').textContent = `seed: ${project.seed}`;
+
+  if (!tl.events.length) {
+    el('timelineEvents').innerHTML = '<div class="tl-empty"><div class="big">?</div><p>No events generated</p></div>';
+    return;
+  }
+
+  el('timelineEvents').innerHTML = tl.events.map(ev => {
+    if (ev.type === 'silence') {
+      return `<div class="tl-event silence">
+        <span class="tl-event-pos">${fmtSec(ev.position_seconds)}</span>
+        <div class="tl-event-bar"><div class="tl-event-fill" style="background:var(--border);color:var(--text-dim)">--- silence ${fmtSec(ev.duration_seconds)} ---</div></div>
+        <span class="tl-event-meta"></span>
+      </div>`;
+    }
+    const a = assetMap[ev.asset_id] || {};
+    const color = clipColors[ev.asset_id] || '#888';
+    const dur = ev.source_end_seconds - ev.source_start_seconds;
+    const meta = [
+      fmtSec(dur),
+      ev.gain_db !== 0 ? `${ev.gain_db > 0 ? '+' : ''}${ev.gain_db.toFixed(1)}dB` : '',
+      ev.fade_in_seconds > 0 ? `in:${ev.fade_in_seconds.toFixed(1)}s` : '',
+      ev.fade_out_seconds > 0 ? `out:${ev.fade_out_seconds.toFixed(1)}s` : '',
+    ].filter(Boolean).join(' ');
+    return `<div class="tl-event">
+      <span class="tl-event-pos">${fmtSec(ev.position_seconds)}</span>
+      <div class="tl-event-bar"><div class="tl-event-fill" style="background:${color}">${a.name || ev.asset_id}</div></div>
+      <span class="tl-event-meta">${meta}</span>
+    </div>`;
+  }).join('');
+}
+
+// Render
+async function doRender() {
+  const btn = el('renderBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Rendering...';
+  try {
+    const res = await api('POST', `/api/projects/${projectId}/render`);
+    loadAudio(`/api/projects/${projectId}/audio`, res.duration_seconds, res.size_mb);
+    toast(`Rendered! ${fmtSec(res.duration_seconds)} / ${res.size_mb} MB`, 'success');
+  } catch(e) {
+    toast('Render failed: ' + (e.detail || e.message), 'error');
+  }
+  btn.innerHTML = 'Render'; btn.disabled = false;
+}
+
+// Audio player
+function setupPlayer() {
+  const audio = el('audioPlayer');
+  audio.addEventListener('timeupdate', () => {
+    const pct = audio.duration ? (audio.currentTime / audio.duration * 100) : 0;
+    el('progressFill').style.width = pct + '%';
+    el('playerTime').textContent = `${fmtTime(audio.currentTime)} / ${fmtTime(audio.duration||0)}`;
+  });
+  audio.addEventListener('ended', () => { el('playBtn').textContent = String.fromCharCode(9654); });
+}
+
+function loadAudio(url, duration, sizeMb) {
+  const audio = el('audioPlayer');
+  audio.src = url + '?t=' + Date.now();
+  audio.load();
+  el('playBtn').disabled = false;
+  el('playerTitle').textContent = 'CNC Audio Render';
+  el('playerSub').textContent = `${fmtSec(duration)} / ${sizeMb} MB WAV / 44100 Hz stereo`;
+  const dl = el('downloadBtn');
+  dl.href = url; dl.style.display = '';
+}
+
+function togglePlay() {
+  const audio = el('audioPlayer');
+  if (audio.paused) { audio.play(); el('playBtn').innerHTML = '&#9646;&#9646;'; }
+  else { audio.pause(); el('playBtn').innerHTML = '&#9654;'; }
+}
+
+function seekAudio(e) {
+  const audio = el('audioPlayer');
+  if (!audio.duration) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
+}
+
+// Panel collapse
+function togglePanel(header) {
+  const innerBody = header.parentElement.querySelector('.panel-body') || header.closest('.panel').querySelector('.panel-body');
+  if (!innerBody) return;
+  const hidden = innerBody.classList.toggle('hidden');
+  header.querySelector('.chevron').style.transform = hidden ? 'rotate(-90deg)' : '';
+}
+</script>
+</body>
+</html>
