@@ -56,8 +56,8 @@ Clips + Parameters + Seed
 | Phase | Focus | Status |
 |-------|-------|--------|
 | 1 | Project rules, JSON schema, file format spec | Done |
-| 2 | Deterministic timeline generator | Done -- 31/31 tests passing |
-| 3 | Audio import, WAV renderer, FastAPI, browser UI | Done -- MVP working |
+| 2 | Deterministic timeline generator | Done |
+| 3 | Audio import, WAV renderer, FastAPI, browser UI | Done |
 | 4 | Timeline editor -- lock sections, reroll clips | Planned |
 | 5 | Rhythm & energy analysis | Planned |
 | 6 | Key detection, pitch correction, advanced effects | Planned |
