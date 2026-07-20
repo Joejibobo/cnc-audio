@@ -36,13 +36,13 @@ Clips + Parameters + Seed
 ```
 cnc-audio/
 ├── packages/
-│   ├── engine/          # Timeline generator (Python)
+│   ├── engine/          # Timeline generator (Python) ✅
 │   ├── renderer/        # Audio renderer via FFmpeg (Python)
 │   ├── analyzer/        # BPM, key, energy analysis (optional)
 │   ├── api/             # FastAPI server
 │   └── frontend/        # React + TypeScript UI
-├── schemas/             # Shared JSON schemas (.cnc project format)
-├── tests/
+├── schemas/             # Shared JSON schemas (.cnc project format) ✅
+├── tests/               # Unit tests (31 passing) ✅
 └── docs/
 ```
 
@@ -51,8 +51,8 @@ cnc-audio/
 | Phase | Focus | Status |
 |-------|-------|--------|
 | 1 | Project rules, JSON schema, file format spec | ✅ Done |
-| 2 | Deterministic timeline generator | 🔄 In Progress |
-| 3 | Audio import, analysis stubs, WAV renderer | ⏳ Planned |
+| 2 | Deterministic timeline generator | ✅ Done — 31/31 tests passing |
+| 3 | Audio import, analysis stubs, WAV renderer | 🔄 Next |
 | 4 | UI — clip library, parameter panel, preview player | ⏳ Planned |
 | 5 | Timeline editor — lock sections, reroll clips | ⏳ Planned |
 | 6 | Rhythm & energy analysis | ⏳ Planned |
@@ -76,7 +76,7 @@ Not every clip has a meaningful key or tempo. Analysis results are stored with c
 
 ## Getting Started
 
-*Coming soon — setup instructions will be added in Phase 3 once the core engine and renderer are complete.*
+*Setup instructions coming in Phase 3 once the renderer and API are complete.*
 
 ## License
 
