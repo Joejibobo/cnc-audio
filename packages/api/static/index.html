@@ -1967,7 +1967,12 @@ function renderTimeline(project) {
       const br = rightExposed ? R : '0';
       const borderRadius = `${tl} ${tr} ${br} ${bl}`;
 
-      return `<div class="h-clip" style="left:${leftPct}%;width:${widthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius}" title="${title}">
+      // Extend non-final clips 1px to the right to cover subpixel rendering
+      // gaps that appear where percentage-based positions don't land on exact
+      // pixel boundaries.
+      const extraW = rightExposed ? '' : ';margin-right:-1px';
+
+      return `<div class="h-clip" style="left:${leftPct}%;width:${widthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius}${extraW}" title="${title}">
           <span>${displayName}</span><span class="h-clip-meta">${fmtSec(audioDur)}</span>
         </div>`;
     }).join('');
