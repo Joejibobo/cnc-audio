@@ -1963,14 +1963,14 @@ function loadAudio(url, duration, sizeMb) {
 function togglePlay() {
   const audio = el('audioPlayer');
   if (audio.paused) {
-    // If the user manually positioned the playhead while paused, re-apply the
-    // seek right before play().  Browsers sometimes fire seeked early (while
-    // still paused) and then emit a spurious timeupdate(0) on the first tick
-    // of play — re-applying here and re-arming pendingSeekRatio defeats that.
+    // Re-arm the visual guard if the user seeked while paused.
+    // Do NOT re-set audio.currentTime — doSeek already moved the audio element
+    // to the right position.  Re-seeking here would put audio.seeking=true when
+    // play() is called, which causes Chrome to reset currentTime to 0.
     if (userSeekTime !== null && isFinite(audio.duration) && audio.duration > 0) {
-      audio.currentTime = userSeekTime;
       pendingSeekRatio = userSeekTime / audio.duration;
       userSeekTime = null;
+      // audio.currentTime is already correct — just let play() start from there
     }
     audio.play();
     el('playBtn').textContent = '\u23f8';
