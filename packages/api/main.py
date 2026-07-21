@@ -914,9 +914,18 @@ def generate(project_id: str):
 
     warnings = list(feasibility["warnings"])
     # Warn when the song timeline fell short of the target (source material ran out).
+    # total_duration_seconds is padded to the target with silence, so we must
+    # compute the actual end of the last clip event instead.
     song_target = feasibility["song_params"].target_duration_seconds
-    song_actual = song_timeline.total_duration_seconds
-    shortfall = song_target - song_actual
+    song_clip_events = [e for e in song_timeline.events if e.type == "clip"]
+    if song_clip_events:
+        last_clip_end = max(
+            e.position_seconds + (e.source_end_seconds - e.source_start_seconds)
+            for e in song_clip_events
+        )
+    else:
+        last_clip_end = 0.0
+    shortfall = song_target - last_clip_end
     min_clip = feasibility["song_params"].clip_duration.min_seconds
     if shortfall > min_clip:
         pct = round(shortfall / song_target * 100)

@@ -735,6 +735,7 @@ let lastLibraryLayer = 'songs';
 let hasGeneratedTimeline = false;
 let contentView = 'settings';
 let currentAssetsByLayer = { songs: [], sounds: [] };
+let isScrubbing = false; // true while user is dragging the playhead
 const COLORS = ['#00d4b4','#0099ff','#f5a623','#b44fff','#ff6b6b','#44d62c','#ff9f43','#54a0ff'];
 const clipColors = {};
 let colorIdx = 0;
@@ -1746,12 +1747,12 @@ function renderTimeline(project) {
       const currEnd = curr.position_seconds + currDur;
       if (next.position_seconds < currEnd) {
         const xDur = Math.max(0.001, currEnd - next.position_seconds);
-        // Center the overlay on the visual transition point (next.position_seconds)
-        // so it equally straddles the end of the left clip and start of the right clip
-        const overlayCenterSec = next.position_seconds;
-        const overlayStartSec = overlayCenterSec - xDur / 2;
-        const blended = blendColor(clipColors[curr.asset_id], clipColors[next.asset_id], 0.55);
-        overlays.push(`<div class="h-fade-overlay" style="left:${pct(Math.max(0, overlayStartSec))}%;width:${Math.max(0.3, pct(xDur))}%;background:${blended}" title="Crossfade ${fmtSec(xDur)}"></div>`);
+        // Overlay spans the actual audio crossfade region [next.position_seconds, currEnd].
+        // Extend xDur/2 to the left to visually straddle the clip boundary.
+        const overlayStartSec = next.position_seconds - xDur / 2;
+        const overlayWidthSec = xDur * 1.5;
+        const blended = blendColor(clipColors[curr.asset_id], clipColors[next.asset_id], 0.6);
+        overlays.push(`<div class="h-fade-overlay" style="left:${pct(Math.max(0, overlayStartSec))}%;width:${Math.max(0.5, pct(overlayWidthSec))}%;background:${blended}" title="Crossfade ${fmtSec(xDur)}"></div>`);
         coveredIn.add(i + 1);
         coveredOut.add(i);
       }
@@ -1856,6 +1857,7 @@ function updateDawPlayhead(ratio) {
 }
 
 function updatePlayhead() {
+  if (isScrubbing) return; // Don't let audio events overwrite a manual scrub
   const audio = el('audioPlayer');
   if (!audio) return;
   const ratio = audio.duration ? (audio.currentTime / audio.duration) : 0;
@@ -1865,22 +1867,17 @@ function updatePlayhead() {
 
 function setupPlayer() {
   const audio = el('audioPlayer');
-  let scrubbing = false;
 
   audio.addEventListener('timeupdate', updatePlayhead);
   audio.addEventListener('seeked', updatePlayhead);
   audio.addEventListener('ended', () => { el('playBtn').textContent = '\u25b6'; });
 
-  // Seek: use the ruler element as the definitive 0–100% reference.
-  // ruler.getBoundingClientRect() gives the exact viewport position of the
-  // track area, eliminating any label-offset arithmetic on the container.
   function doSeek(clientX) {
     const ruler = el('dawRuler');
     if (!ruler) return;
     const rect = ruler.getBoundingClientRect();
     if (!rect.width) return;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    // Update playhead immediately — don't wait for timeupdate.
     updateDawPlayhead(ratio);
     const dur = audio.duration;
     if (isFinite(dur) && dur > 0) {
@@ -1889,22 +1886,19 @@ function setupPlayer() {
     }
   }
 
-  // Attach to the container directly (not document) so we don't interfere with
-  // other page-level handlers, and events bubble naturally from ruler/tracks.
   const dawCon = el('dawContainer');
   if (dawCon) {
     dawCon.addEventListener('mousedown', e => {
       const ruler = el('dawRuler');
       if (!ruler) return;
-      // Ignore clicks on the label column (to the left of the ruler)
       if (e.clientX < ruler.getBoundingClientRect().left) return;
       e.preventDefault();
-      scrubbing = true;
+      isScrubbing = true;
       doSeek(e.clientX);
     });
   }
-  window.addEventListener('mousemove', e => { if (scrubbing) doSeek(e.clientX); });
-  window.addEventListener('mouseup', () => { scrubbing = false; });
+  window.addEventListener('mousemove', e => { if (isScrubbing) doSeek(e.clientX); });
+  window.addEventListener('mouseup', () => { isScrubbing = false; });
 }
 
 function loadAudio(url, duration, sizeMb) {
