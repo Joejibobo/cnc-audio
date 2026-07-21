@@ -59,12 +59,21 @@ def check_feasibility(assets: List[Asset], params: Parameters) -> FeasibilityRes
         )
 
     max_per = params.repetition.max_per_clip
-    max_fillable = 0.0
-    for asset in usable:
-        asset_cap = asset.duration_seconds
-        if max_per is not None:
-            asset_cap = min(asset_cap, max_per * max_dur)
-        max_fillable += asset_cap
+    no_repeat_sec = params.repetition.no_repeat_sections
+
+    # When clips can repeat AND source sections can repeat, content is effectively
+    # unlimited — any clip can be played as many times as needed.
+    # When no_repeat_sections=True, each clip can only contribute its unique duration.
+    # When max_per is set, each clip contributes at most max_per * max_dur.
+    if max_per is None and not no_repeat_sec:
+        max_fillable = float('inf')
+    else:
+        max_fillable = 0.0
+        for asset in usable:
+            asset_cap = asset.duration_seconds  # unique content in this clip
+            if max_per is not None:
+                asset_cap = min(asset_cap, max_per * max_dur)
+            max_fillable += asset_cap
 
     effective_target = target
 
@@ -72,9 +81,9 @@ def check_feasibility(assets: List[Asset], params: Parameters) -> FeasibilityRes
         errors.append(
             f"Cannot fill a {target}s track: maximum achievable content is "
             f"~{max_fillable:.0f}s with {len(usable)} usable clip(s). "
-            f"Try: increase max_per_clip, add more clips, or reduce target_duration."
+            f"Try: enable 'Allow Repeats', disable 'No Repeat Sections', add more clips, or reduce target duration."
         )
-    elif max_fillable < effective_target * 1.25:
+    elif max_fillable != float('inf') and max_fillable < effective_target * 1.25:
         warnings.append(
             f"Content headroom is tight (~{max_fillable:.0f}s available for a {target}s track). "
             f"There will be limited variety. Consider adding more clips or increasing max_per_clip."

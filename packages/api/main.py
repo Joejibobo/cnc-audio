@@ -651,7 +651,11 @@ def _build_parameters(layer: LayerParametersRequest, target_duration_seconds: fl
             max_seconds=layer.clip_duration_max,
         ),
         repetition=RepetitionParams(
-            max_per_clip=1 if not layer.allow_repeats else layer.max_per_clip,
+            # allow_repeats=True with max_per_clip<=1 is contradictory; treat as unlimited.
+            max_per_clip=(
+                1 if not layer.allow_repeats
+                else (layer.max_per_clip if (layer.max_per_clip or 0) > 1 else None)
+            ),
             min_gap_clips=layer.min_gap_clips,
             allow_consecutive=layer.allow_consecutive,
             no_repeat_sections=layer.no_repeat_sections,

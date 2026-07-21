@@ -1484,6 +1484,13 @@ function onDistributionChange() {
 }
 
 function onAllowRepeatsChange() {
+  // When re-enabling repeats, clear maxPerClip if it was 1 (the implicit value
+  // set when repeats were disabled). Leaving it at 1 would silently cap each
+  // clip to one use even though the toggle says otherwise.
+  if (el('allowRepeats').checked) {
+    const mpc = el('maxPerClip');
+    if (mpc && (mpc.value === '1' || mpc.value === '')) mpc.value = '';
+  }
   syncControlStates();
   debounceParams();
 }
