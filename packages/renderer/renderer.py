@@ -62,6 +62,8 @@ def render_timeline(
     asset_wav_paths: Dict[str, str],
     output_path: str,
     export: ExportSettings,
+    master_fade_in: float = 0.0,
+    master_fade_out: float = 0.0,
 ) -> None:
     """
     Render a Timeline to a WAV file.
@@ -121,6 +123,17 @@ def render_timeline(
 
     exact_samples = int(timeline.total_duration_seconds * SAMPLE_RATE)
     buffer = buffer[:exact_samples]
+
+    # Master fade in / out applied to the full mixed buffer
+    if master_fade_in and master_fade_in > 0:
+        n = min(int(master_fade_in * SAMPLE_RATE), len(buffer))
+        if n > 0:
+            buffer[:n] *= np.linspace(0.0, 1.0, n, dtype=np.float32)[:, np.newaxis]
+
+    if master_fade_out and master_fade_out > 0:
+        n = min(int(master_fade_out * SAMPLE_RATE), len(buffer))
+        if n > 0:
+            buffer[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)[:, np.newaxis]
 
     if export.normalize_output:
         peak = float(np.max(np.abs(buffer)))

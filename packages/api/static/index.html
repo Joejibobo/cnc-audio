@@ -53,16 +53,6 @@
   /* Content */
   .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 
-  /* Sidebar toggle button */
-  .sidebar-toggle-btn {
-    display: none;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 6px; color: var(--text-dim); cursor: pointer;
-    padding: 4px 10px; font-size: 12px; font-weight: 600;
-    white-space: nowrap;
-  }
-  .sidebar-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
-
   /* Panels */
   .panel { border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .panel-header {
@@ -190,81 +180,76 @@
   /* Actions bar */
   .actions-bar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
 
-  /* Timeline */
-  .timeline-section { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
-  .timeline-header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
-  .timeline-header strong { color: var(--text); font-size: 13px; text-transform: none; letter-spacing: 0; }
-  .timeline-events { flex: 1; overflow: auto; padding: 12px 20px; }
-  .settings-workspace { flex: 1; overflow-y: auto; padding: 12px 20px; }
-  .settings-workspace .params-scroll { overflow: visible; }
-  .settings-workspace .panel { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; background: var(--surface2); }
-  .settings-workspace .panel-header:hover { background: rgba(255,255,255,0.02); }
-  .timeline-lane { margin-bottom: 14px; }
-  .timeline-lane-header { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
-  .timeline-lane.songs .timeline-lane-header { color: #66f5e3; }
-  .timeline-lane.sounds .timeline-lane-header { color: #9fc8ff; }
-  .h-ruler { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); margin: 0 0 8px 0; }
-  .h-track {
-    position: relative;
-    min-height: 62px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background:
-      linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px) 0 0 / 10% 100%,
-      rgba(255,255,255,0.01);
-    overflow: hidden;
-  }
-  .h-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 12px; }
-  .h-clip {
-    position: absolute;
-    top: 12px;
-    height: 38px;
-    border-radius: 6px;
-    border: 1px solid rgba(0,0,0,0.35);
-    display: flex;
-    align-items: center;
-    padding: 0 8px;
-    color: #050505;
-    font-weight: 700;
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .h-fade {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    pointer-events: none;
-    width: 20%;
-    max-width: 24px;
-  }
-  .h-fade.in { left: 0; background: linear-gradient(to right, rgba(0,0,0,0.22), transparent); border-radius: 6px 0 0 6px; }
-  .h-fade.out { right: 0; background: linear-gradient(to left, rgba(0,0,0,0.22), transparent); border-radius: 0 6px 6px 0; }
-  .h-clip-meta { margin-left: auto; font-size: 10px; color: rgba(0,0,0,0.65); padding-left: 8px; }
-  .tl-empty { text-align: center; color: var(--text-dim); padding: 60px 20px; }
-  .tl-empty .big { font-size: 48px; margin-bottom: 12px; }
+  /* Content view toggle */
+  .view-tabs { display: flex; gap: 3px; background: var(--surface2); border-radius: 8px; padding: 3px; border: 1px solid var(--border); flex-shrink: 0; }
+  .view-tab { padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; background: transparent; border: none; color: var(--text-dim); transition: 0.15s; white-space: nowrap; }
+  .view-tab.active { background: rgba(255,255,255,0.09); color: var(--text); }
+  .view-tab:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.04); }
 
-  .tl-event { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px; margin-bottom: 4px; border: 1px solid var(--border); background: var(--surface2); }
-  .tl-event.silence { background: transparent; border-style: dashed; opacity: 0.5; }
-  .tl-event-pos { font-size: 11px; color: var(--text-dim); width: 52px; flex-shrink: 0; font-family: monospace; }
-  .tl-event-bar { flex: 1; min-width: 0; }
-  .tl-event-fill { height: 22px; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #000; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .tl-event-meta { font-size: 10px; color: var(--text-dim); width: 160px; flex-shrink: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tab-render-only { display: none; }
+  /* Settings view */
+  .content-view { flex: 1; overflow-y: auto; padding: 12px 20px; min-height: 0; }
+  .content-view .params-scroll { overflow: visible; }
+  .content-view .panel { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; background: var(--surface2); }
+  .content-view .panel-header:hover { background: rgba(255,255,255,0.02); }
+
+  /* DAW Timeline view */
+  .daw-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .daw-info-bar { padding: 7px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-dim); flex-shrink: 0; background: var(--surface); }
+  .daw-info-bar strong { color: var(--text); font-size: 13px; }
+  .daw-container { flex: 1; overflow: auto; position: relative; }
+  .daw-row { display: flex; min-width: 0; }
+  .daw-label {
+    width: 72px; min-width: 72px; flex-shrink: 0;
+    background: var(--surface2); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 10px; font-size: 10px; font-weight: 700; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.7px;
+    position: sticky; left: 0; z-index: 5;
+  }
+  .daw-label.sounds-label { color: #9fc8ff; }
+  .daw-label.songs-label  { color: #66f5e3; }
+  .daw-ruler-wrap {
+    flex: 1; position: relative; height: 30px; min-width: 0;
+    background: var(--surface); border-bottom: 2px solid var(--border);
+    cursor: pointer; user-select: none; overflow: hidden;
+  }
+  .daw-ruler-wrap:hover { background: rgba(255,255,255,0.015); }
+  .daw-track {
+    flex: 1; position: relative; height: 58px; min-width: 0;
+    background:
+      linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px) 0 0 / 10% 100%,
+      rgba(0,0,0,0);
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .daw-tick { position: absolute; top: 0; height: 12px; width: 1px; background: rgba(255,255,255,0.12); pointer-events: none; }
+  .daw-tick-label { position: absolute; top: 14px; font-size: 9px; color: var(--text-dim); font-family: monospace; pointer-events: none; white-space: nowrap; transform: translateX(-50%); }
+  .daw-tick-label.at-start { transform: none; }
+  .daw-tick-label.at-end   { transform: translateX(-100%); }
+  .daw-playhead {
+    position: absolute; top: 0; bottom: 0; width: 2px;
+    background: var(--accent); pointer-events: none; z-index: 20;
+    box-shadow: 0 0 8px rgba(0,212,180,0.65);
+    left: 72px;
+  }
+  .tl-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-dim); padding: 40px 20px; }
+  .tl-empty .big { font-size: 48px; margin-bottom: 12px; }
+  .h-clip {
+    position: absolute; top: 9px; height: 40px; border-radius: 5px;
+    border: 1px solid rgba(0,0,0,0.22); display: flex; align-items: center;
+    padding: 0 8px; color: #080808; font-weight: 700; font-size: 11px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .h-clip-meta { margin-left: auto; font-size: 10px; color: rgba(0,0,0,0.5); padding-left: 8px; flex-shrink: 0; }
+  .h-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 12px; opacity: 0.5; }
+  .h-fade-overlay { position: absolute; top: 9px; height: 40px; pointer-events: none; border-radius: 5px; z-index: 2; }
 
   /* Player */
-  .player-section { background: var(--surface); border-top: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-  .play-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border: none; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: 0.15s; }
+  .player-section { background: var(--surface); border-top: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .play-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border: none; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: 0.15s; color: #000; }
   .play-btn:hover:not(:disabled) { background: #00f0cc; transform: scale(1.05); }
   .play-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
-  .player-info { min-width: 140px; }
-  .player-title { font-size: 13px; font-weight: 600; }
-  .player-sub { font-size: 11px; color: var(--text-dim); }
-  .player-progress { flex: 1; height: 18px; background: transparent; cursor: pointer; position: relative; display: flex; align-items: center; }
-  .player-progress-track { position: absolute; left: 0; right: 0; height: 4px; background: var(--border); border-radius: 2px; pointer-events: none; }
-  .player-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; pointer-events: none; }
-  .player-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; font-family: monospace; }
+  .player-time { font-size: 12px; color: var(--text-dim); white-space: nowrap; font-family: monospace; min-width: 110px; }
 
   /* Toast */
   .toast-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
@@ -302,8 +287,9 @@
   #repeatOptions { padding-left: 12px; border-left: 2px solid var(--border); margin-top: 8px; }
 
   @media (max-width: 1200px) {
-    .tl-event { align-items: flex-start; flex-wrap: wrap; }
-    .tl-event-meta { width: 100%; padding-left: 62px; text-align: left; }
+    .h-clip { font-size: 10px; }
+    .daw-label { width: 56px; min-width: 56px; font-size: 9px; }
+    .daw-playhead { left: 56px; }
   }
 </style>
 </head>
@@ -314,9 +300,7 @@
   <span style="color:var(--border)">|</span>
   <input class="project-name-input" id="projectName" type="text" placeholder="Project name…" value="Untitled Project" oninput="debounceProjectName()">
   <div class="header-actions">
-    <button class="btn btn-secondary btn-sm" onclick="startNewProject()" title="Start a fresh project session" data-tip="Start a fresh project session. Export the current project first if you want a portable backup.">🗂 New Project</button>
-    <button class="btn btn-secondary btn-sm" onclick="openProjectPicker()" title="Open a previously exported project bundle" data-tip="Open a previously exported CNC Audio project bundle and restore its clips, settings, and timeline.">📂 Open Project</button>
-    <button class="btn btn-secondary btn-sm" onclick="exportProjectBundle()" title="Download a portable project bundle" data-tip="Download a portable project bundle containing your project file, imported assets, and saved render files.">📦 Export Project</button>
+    <button class="btn btn-secondary btn-sm" onclick="startNewProject()" title="Start a fresh project session" data-tip="Start a fresh project session. Your current session stays autosaved on this machine.">🗂 New Project</button>
     <button class="btn btn-secondary btn-sm" onclick="resetSettingsToDefault()" title="Reset all parameters to their defaults" data-tip="Reset all parameters to their defaults">↺ Reset</button>
     <button class="btn btn-secondary btn-sm" onclick="saveSettingsToStorage()" title="Save current settings so they load automatically next time" data-tip="Save current settings so they load automatically next time" style="border-color:var(--accent);color:var(--accent)">💾 Save Settings</button>
     <span id="statusBadge" style="font-size:12px;color:var(--text-dim)" data-tip="Project sessions autosave on the server. Use Export Project to create a portable bundle you can reopen later.">Starting…</span>
@@ -414,6 +398,26 @@
               <div class="toggle-row" style="margin-top:6px">
                 <label class="toggle"><input type="checkbox" id="normalizeOutput" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
                 <label for="normalizeOutput">Normalize final render</label>
+              </div>
+            </div>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" id="masterFadeEnabled" onchange="onMasterFadeToggle()"><span class="toggle-slider"></span></label>
+            <label for="masterFadeEnabled">Master fade in / out
+              <span class="tip" data-tip="Apply a linear fade to the very beginning and/or end of the final rendered audio, independently of per-clip fades.">&#9432;</span>
+            </label>
+          </div>
+          <div id="masterFadeOptions" class="section-disabled">
+            <div class="form-row-inline">
+              <div class="form-row">
+                <label>Fade In <span class="range-display" id="masterFadeInD">0.0s</span></label>
+                <input type="range" id="masterFadeIn" min="0" max="30" value="0" step="0.5" disabled
+                  oninput="el('masterFadeInD').textContent=this.value+'s'; debounceParams()">
+              </div>
+              <div class="form-row">
+                <label>Fade Out <span class="range-display" id="masterFadeOutD">0.0s</span></label>
+                <input type="range" id="masterFadeOut" min="0" max="30" value="0" step="0.5" disabled
+                  oninput="el('masterFadeOutD').textContent=this.value+'s'; debounceParams()">
               </div>
             </div>
           </div>
@@ -633,27 +637,44 @@
       <div id="feasibilityDisplay" style="flex:1;min-width:0">
         <div class="feasibility-box" style="background:transparent;border:none;color:var(--text-dim);font-size:12px;">Starting…</div>
       </div>
-      <div id="renderActionHint" style="color:var(--text-dim);font-size:12px;">Switch to the Render tab to generate and render.</div>
-      <div id="renderActionButtons" class="tab-render-only" style="display:none;gap:10px">
-        <button class="btn btn-secondary" id="generateBtn" onclick="doGenerate()" disabled>⚡ Generate</button>
-        <button class="btn btn-primary" id="renderBtn" onclick="doRender()" disabled>🎧 Render</button>
+      <div class="view-tabs">
+        <button id="viewSettingsBtn" class="view-tab active" onclick="setContentView('settings')">⚙ Settings</button>
+        <button id="viewTimelineBtn" class="view-tab" onclick="setContentView('timeline')">▶ Timeline</button>
       </div>
+      <button class="btn btn-secondary" id="generateBtn" onclick="doGenerate()" disabled>⚡ Generate</button>
+      <button class="btn btn-primary" id="renderBtn" onclick="doRender()" disabled>🎧 Render</button>
     </div>
 
-    <!-- Timeline view -->
-    <div class="timeline-section">
-      <div class="timeline-header">
+    <!-- Settings view -->
+    <div class="content-view" id="settingsView"></div>
+
+    <!-- Timeline view (DAW) -->
+    <div class="daw-view" id="timelineView" style="display:none">
+      <div class="daw-info-bar">
         <strong id="tlTitle">Timeline</strong>
-        <span id="tlMeta" style="color:var(--text-dim)"></span>
+        <span id="tlMeta"></span>
         <span style="flex:1"></span>
-        <button id="sidebarToggleBtn" class="sidebar-toggle-btn" onclick="showSidebar()">⚙ Settings</button>
-        <span id="tlSeed" style="font-family:monospace;font-size:11px;color:var(--text-dim)"></span>
+        <span id="tlSeed" style="font-family:monospace;font-size:11px"></span>
       </div>
-      <div class="settings-workspace" id="settingsWorkspace"></div>
-      <div class="timeline-events" id="timelineEvents">
-        <div class="tl-empty">
-          <div class="big">🎛️</div>
-          <p style="font-size:15px;">Import clips, adjust parameters, then hit <strong>Generate</strong></p>
+      <div id="timelineEmpty" class="tl-empty">
+        <div class="big">🎛️</div>
+        <p style="font-size:15px;">Hit <strong>Generate</strong> to build the timeline</p>
+      </div>
+      <div id="dawContainer" class="daw-container" style="display:none">
+        <div class="daw-playhead" id="dawPlayhead"></div>
+        <div class="daw-row">
+          <div class="daw-label"></div>
+          <div class="daw-ruler-wrap" id="dawRuler">
+            <div id="dawRulerTicks"></div>
+          </div>
+        </div>
+        <div class="daw-row">
+          <div class="daw-label sounds-label">Sounds</div>
+          <div class="daw-track" id="soundsTrack"><div class="h-empty">No sounds</div></div>
+        </div>
+        <div class="daw-row">
+          <div class="daw-label songs-label">Songs</div>
+          <div class="daw-track" id="songsTrack"><div class="h-empty">No songs</div></div>
         </div>
       </div>
     </div>
@@ -662,16 +683,8 @@
     <div class="player-section">
       <audio id="audioPlayer"></audio>
       <button class="play-btn" id="playBtn" onclick="togglePlay()" disabled title="Play / Pause">▶</button>
-      <div class="player-info">
-        <div class="player-title" id="playerTitle">No render yet</div>
-        <div class="player-sub" id="playerSub">Generate and render a timeline to hear your track</div>
-      </div>
-      <div class="player-progress" id="playerProgress">
-        <div class="player-progress-track">
-          <div class="player-progress-fill" id="progressFill"></div>
-        </div>
-      </div>
       <span class="player-time" id="playerTime">0:00 / 0:00</span>
+      <div style="flex:1"></div>
       <a id="downloadBtn" style="display:none" class="btn btn-secondary btn-sm" download="cnc-audio.wav">⬇ WAV</a>
     </div>
 
@@ -720,6 +733,7 @@ let projectNameTimer = null;
 let activeLayer = 'songs';
 let lastLibraryLayer = 'songs';
 let hasGeneratedTimeline = false;
+let contentView = 'settings';
 let currentAssetsByLayer = { songs: [], sounds: [] };
 const COLORS = ['#00d4b4','#0099ff','#f5a623','#b44fff','#ff6b6b','#44d62c','#ff9f43','#54a0ff'];
 const clipColors = {};
@@ -780,6 +794,15 @@ function setActiveLayer(layer) {
   checkFeasibility();
 }
 
+function setContentView(view) {
+  contentView = view;
+  const isTimeline = view === 'timeline';
+  el('settingsView').style.display = isTimeline ? 'none' : '';
+  el('timelineView').style.display = isTimeline ? '' : 'none';
+  el('viewSettingsBtn').classList.toggle('active', !isTimeline);
+  el('viewTimelineBtn').classList.toggle('active', isTimeline);
+}
+
 function updateLayerTabUi() {
   el('songsTabBtn').classList.toggle('active', activeLayer === 'songs');
   el('soundsTabBtn').classList.toggle('active', activeLayer === 'sounds');
@@ -804,34 +827,6 @@ function updateLayerTabUi() {
   el('silencePanel').style.display = isRender ? 'none' : '';
   el('gainPanel').style.display = isRender ? 'none' : '';
   el('seedPanel').style.display = isRender ? '' : 'none';
-  el('renderActionHint').style.display = isRender ? 'none' : '';
-  el('renderActionButtons').style.display = isRender ? 'flex' : 'none';
-  updateWorkspaceVisibility();
-}
-
-function updateWorkspaceVisibility() {
-  const showTimeline = hasGeneratedTimeline && activeLayer === 'render';
-  el('settingsWorkspace').style.display = showTimeline ? 'none' : '';
-  el('timelineEvents').style.display = showTimeline ? '' : 'none';
-  const sidebar = document.querySelector('.sidebar');
-  const toggleBtn = el('sidebarToggleBtn');
-  if (sidebar) sidebar.classList.toggle('collapsed', showTimeline);
-  if (toggleBtn) toggleBtn.style.display = showTimeline ? '' : 'none';
-  if (showTimeline) {
-    el('tlTitle').textContent = el('tlTitle').textContent.startsWith('Timeline') ? el('tlTitle').textContent : 'Timeline';
-  } else {
-    el('tlTitle').textContent = 'Settings';
-    el('tlMeta').textContent = activeLayer === 'render'
-      ? 'Tune render behavior, seed, and output controls'
-      : `Adjust ${getLayerLabel(activeLayer).toLowerCase()} controls, then switch to Render to generate`;
-  }
-}
-
-function showSidebar() {
-  hasGeneratedTimeline = false;
-  setActiveLayer('render');
-  hasGeneratedTimeline = true;
-  updateWorkspaceVisibility();
 }
 
 function updateStatusBadge() {
@@ -842,15 +837,11 @@ function updateStatusBadge() {
 
 function resetTimelineUi() {
   hasGeneratedTimeline = false;
-  el('tlTitle').textContent = 'Settings';
+  el('tlTitle').textContent = 'Timeline';
   el('tlMeta').textContent = '';
   el('tlSeed').textContent = '';
-  el('timelineEvents').innerHTML = `
-    <div class="tl-empty">
-      <div class="big">🎛️</div>
-      <p style="font-size:15px;">Import clips, adjust parameters, then hit <strong>Generate</strong></p>
-    </div>`;
-  updateWorkspaceVisibility();
+  if (el('dawContainer')) el('dawContainer').style.display = 'none';
+  if (el('timelineEmpty')) el('timelineEmpty').style.display = '';
 }
 
 function resetPlayerUi() {
@@ -860,10 +851,9 @@ function resetPlayerUi() {
   audio.load();
   el('playBtn').disabled = true;
   el('playBtn').textContent = '▶';
-  el('playerTitle').textContent = 'No render yet';
-  el('playerSub').textContent = 'Generate and render a timeline to hear your track';
-  el('progressFill').style.width = '0%';
   el('playerTime').textContent = '0:00 / 0:00';
+  if (el('dawPlayhead')) el('dawPlayhead').style.left = '72px';
+  if (el('dawRulerTicks')) el('dawRulerTicks').innerHTML = '';
   el('downloadBtn').style.display = 'none';
 }
 
@@ -1034,6 +1024,9 @@ const RENDER_DEFAULTS = {
   soundLayerGain: '0',
   renderGain: '0',
   normalizeOutput: true,
+  masterFadeEnabled: false,
+  masterFadeIn: '0',
+  masterFadeOut: '0',
 };
 
 const APP_DEFAULTS = {
@@ -1078,6 +1071,9 @@ function collectRenderSettings() {
     soundLayerGain: el('soundLayerGain').value,
     renderGain: el('renderGain').value,
     normalizeOutput: el('normalizeOutput').checked,
+    masterFadeEnabled: el('masterFadeEnabled').checked,
+    masterFadeIn: el('masterFadeIn').value,
+    masterFadeOut: el('masterFadeOut').value,
   };
 }
 
@@ -1139,6 +1135,28 @@ function applyRenderSettings(s) {
   el('renderGain').value = s.renderGain;
   el('renderGainD').textContent = `${+s.renderGain >= 0 ? '+' : ''}${Number(s.renderGain).toFixed(1)} dB`;
   el('normalizeOutput').checked = !!s.normalizeOutput;
+
+  const fadeEnabled = !!s.masterFadeEnabled;
+  el('masterFadeEnabled').checked = fadeEnabled;
+  el('masterFadeIn').value = s.masterFadeIn ?? '0';
+  el('masterFadeInD').textContent = (s.masterFadeIn ?? 0) + 's';
+  el('masterFadeOut').value = s.masterFadeOut ?? '0';
+  el('masterFadeOutD').textContent = (s.masterFadeOut ?? 0) + 's';
+  _applyMasterFadeState(fadeEnabled);
+}
+
+function onMasterFadeToggle() {
+  _applyMasterFadeState(el('masterFadeEnabled').checked);
+  debounceParams();
+}
+
+function _applyMasterFadeState(enabled) {
+  const opts = el('masterFadeOptions');
+  if (!opts) return;
+  opts.classList.toggle('section-disabled', !enabled);
+  ['masterFadeIn', 'masterFadeOut'].forEach(id => {
+    const e = el(id); if (e) e.disabled = !enabled;
+  });
 }
 
 function collectSettings() {
@@ -1262,12 +1280,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupPlayer();
   setupTooltip();
   const paramsScroll = document.querySelector('.params-scroll');
-  if (paramsScroll && el('settingsWorkspace')) {
-    el('settingsWorkspace').appendChild(paramsScroll);
+  if (paramsScroll && el('settingsView')) {
+    el('settingsView').appendChild(paramsScroll);
   }
   syncDurationHMS(60);
   bindManualSliderInputs();
-  loadSavedSettings();           // restore persisted settings before first saveParams
   resetTimelineUi();
   resetPlayerUi();
   el('projectImportInput').addEventListener('change', e => {
@@ -1276,6 +1293,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     e.target.value = '';
   });
   await createProjectSession('Untitled Project');
+  // Load saved settings AFTER refreshProject so they aren't overwritten by API defaults.
+  // Then immediately push them to the API so the project matches the user's saved state.
+  loadSavedSettings();
+  await saveParams();
 });
 
 // ─────────────────────────────────────────────
@@ -1385,12 +1406,18 @@ async function refreshProject() {
   layerSettings.songs = mapApiParamsToLayerSettings(p.song_parameters || p.parameters);
   layerSettings.sounds = mapApiParamsToLayerSettings(p.sound_parameters || p.parameters);
   if (p.render_settings) {
+    const rs = p.render_settings;
+    const fadeIn  = rs.master_fade_in_seconds  ?? 0;
+    const fadeOut = rs.master_fade_out_seconds ?? 0;
     applyRenderSettings({
-      targetDuration: String(p.render_settings.target_duration_seconds ?? RENDER_DEFAULTS.targetDuration),
-      songLayerGain: String(p.render_settings.song_gain_db ?? RENDER_DEFAULTS.songLayerGain),
-      soundLayerGain: String(p.render_settings.sound_gain_db ?? RENDER_DEFAULTS.soundLayerGain),
-      renderGain: String(p.render_settings.render_gain_db ?? RENDER_DEFAULTS.renderGain),
-      normalizeOutput: p.render_settings.normalize_output ?? RENDER_DEFAULTS.normalizeOutput,
+      targetDuration: String(rs.target_duration_seconds ?? RENDER_DEFAULTS.targetDuration),
+      songLayerGain: String(rs.song_gain_db ?? RENDER_DEFAULTS.songLayerGain),
+      soundLayerGain: String(rs.sound_gain_db ?? RENDER_DEFAULTS.soundLayerGain),
+      renderGain: String(rs.render_gain_db ?? RENDER_DEFAULTS.renderGain),
+      normalizeOutput: rs.normalize_output ?? RENDER_DEFAULTS.normalizeOutput,
+      masterFadeEnabled: (fadeIn > 0 || fadeOut > 0),
+      masterFadeIn: String(fadeIn),
+      masterFadeOut: String(fadeOut),
     });
   }
   const settingsLayer = activeLayer === 'render' ? lastLibraryLayer : activeLayer;
@@ -1407,17 +1434,15 @@ async function refreshProject() {
     dl.href = `/api/projects/${projectId}/download?t=${Date.now()}`;
     dl.style.display = '';
     dl.setAttribute('download', p.download_filename || 'cnc-audio.wav');
-    if (!el('audioPlayer').getAttribute('src')) {
-      el('playerTitle').textContent = 'Saved render available';
-      el('playerSub').textContent = 'This project includes a previously rendered WAV. Download it or render again to refresh it.';
-    }
+    if (p.timeline) buildDawRulerTicks(p.timeline.total_duration_seconds);
   }
   if (p.timeline) {
     hasGeneratedTimeline = true;
     renderTimeline(p);
+    el('renderBtn').disabled = false;
   } else {
     hasGeneratedTimeline = false;
-    updateWorkspaceVisibility();
+    resetTimelineUi();
   }
   return p;
 }
@@ -1547,6 +1572,8 @@ async function saveParams() {
       sound_gain_db: parseFloat(render.soundLayerGain),
       render_gain_db: parseFloat(render.renderGain),
       normalize_output: !!render.normalizeOutput,
+      master_fade_in_seconds: render.masterFadeEnabled ? parseFloat(render.masterFadeIn) : 0.0,
+      master_fade_out_seconds: render.masterFadeEnabled ? parseFloat(render.masterFadeOut) : 0.0,
     },
     song_parameters: layerBodyFromSettings(songs, activeLayer === 'songs' ? getWeights() : undefined),
     sound_parameters: layerBodyFromSettings(sounds, activeLayer === 'sounds' ? getWeights() : undefined),
@@ -1636,7 +1663,7 @@ async function doGenerate() {
     const p = await api('GET', `/api/projects/${projectId}`);
     hasGeneratedTimeline = true;
     renderTimeline(p);
-    updateWorkspaceVisibility();
+    setContentView('timeline');
     el('renderBtn').disabled = false;
     toast(`\u26a1 Generated: ${res.song_clip_count || 0} song clips + ${res.sound_clip_count || 0} sound clips \u00b7 ${fmtSec(res.total_duration_seconds)}`, 'success');
     if (res.warnings?.length) res.warnings.forEach(w => toast('\u26a0\ufe0f ' + w, 'warn'));
@@ -1655,16 +1682,30 @@ function renderTimeline(project) {
   [...(project.song_assets || []), ...(project.sound_assets || []), ...(project.assets || [])]
     .forEach(a => { if (a && a.id) assetMap[a.id] = a; });
 
+  const total = Math.max(0.001, tl.total_duration_seconds || 0.001);
   el('tlTitle').textContent = `Timeline \u2014 ${fmtSec(tl.total_duration_seconds)}`;
-  const songClips = tl.events.filter(e => e.type === 'clip' && (e.layer || 'songs') === 'songs');
+  const songClips  = tl.events.filter(e => e.type === 'clip' && (e.layer || 'songs') === 'songs');
   const soundClips = tl.events.filter(e => e.type === 'clip' && e.layer === 'sounds');
-  const songSilences = tl.events.filter(e => e.type === 'silence');
-  el('tlMeta').textContent = `${songClips.length} song clips \u00b7 ${soundClips.length} sound clips \u00b7 ${songSilences.length} song silences`;
+  el('tlMeta').textContent = `${songClips.length} song clips \u00b7 ${soundClips.length} sound clips`;
   el('tlSeed').textContent = `seed: ${project.seed}`;
 
-  if (!tl.events.length) {
-    el('timelineEvents').innerHTML = '<div class="tl-empty"><div class="big">\ud83e\udd37</div><p>No events generated</p></div>';
-    return;
+  const rs = project.render_settings || {};
+  const masterFadeIn  = parseFloat(rs.master_fade_in_seconds  || 0);
+  const masterFadeOut = parseFloat(rs.master_fade_out_seconds || 0);
+
+  function pct(value) { return Math.max(0, Math.min(100, (value / total) * 100)); }
+
+  function hexToRgba(hex, alpha) {
+    const h = (hex || '#888888').replace('#', '');
+    return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${alpha})`;
+  }
+
+  function blendColor(hex1, hex2, alpha) {
+    const h1 = (hex1 || '#888888').replace('#', ''), h2 = (hex2 || '#888888').replace('#', '');
+    const r = Math.round((parseInt(h1.slice(0,2),16) + parseInt(h2.slice(0,2),16)) / 2);
+    const g = Math.round((parseInt(h1.slice(2,4),16) + parseInt(h2.slice(2,4),16)) / 2);
+    const b = Math.round((parseInt(h1.slice(4,6),16) + parseInt(h2.slice(4,6),16)) / 2);
+    return `rgba(${r},${g},${b},${alpha})`;
   }
 
   function clipNameForEvent(ev) {
@@ -1672,67 +1713,73 @@ function renderTimeline(project) {
     const fromPath = (a.path || '').split('/').pop() || '';
     const pathStem = fromPath.replace(/_original\.[^.]+$/i, '').replace(/\.[^.]+$/, '');
     const preferred = (a.name || '').trim();
-    if (preferred && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(preferred)) {
-      return preferred;
-    }
-    if (pathStem) return pathStem;
-    return ev.asset_id;
+    if (preferred && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(preferred)) return preferred;
+    return pathStem || ev.asset_id;
   }
 
-  const total = Math.max(0.001, tl.total_duration_seconds || 0.001);
-  function pct(value) {
-    return Math.max(0, Math.min(100, (value / total) * 100));
-  }
+  function buildTrackHtml(events) {
+    if (!events.length) return '<div class="h-empty">No clips</div>';
 
-  function renderLane(events, label) {
-    if (!events.length) {
-      return `
-        <div class="timeline-lane ${label.toLowerCase()}">
-          <div class="timeline-lane-header">${label}</div>
-          <div class="h-ruler"><span>0:00</span><span>${fmtTime(total)}</span></div>
-          <div class="h-track"><div class="h-empty">No ${label.toLowerCase()} clips</div></div>
-        </div>
-      `;
-    }
     const blocks = events.map((ev, idx) => {
       const dur = Math.max(0.001, ev.source_end_seconds - ev.source_start_seconds);
-      // Trim display width to next clip's start to avoid visual overlap between adjacent clips
       const nextStart = (idx + 1 < events.length) ? events[idx + 1].position_seconds : total;
       const displayDur = Math.max(0.001, Math.min(dur, nextStart - ev.position_seconds + 0.001));
-      const leftPct = pct(ev.position_seconds);
+      const leftPct  = pct(ev.position_seconds);
       const widthPct = Math.max(0.4, pct(displayDur));
-      const fadeInPct = Math.max(0, Math.min(45, (ev.fade_in_seconds / dur) * 100));
-      const fadeOutPct = Math.max(0, Math.min(45, (ev.fade_out_seconds / dur) * 100));
       const clipName = clipNameForEvent(ev);
-      const displayName = clipName.length > 38 ? `${clipName.slice(0, 35)}\u2026` : clipName;
-      const color = clipColors[ev.asset_id] || '#888';
+      const displayName = clipName.length > 38 ? clipName.slice(0, 35) + '\u2026' : clipName;
+      const color = clipColors[ev.asset_id] || '#888888';
       const gainText = ev.gain_db ? `${ev.gain_db > 0 ? '+' : ''}${ev.gain_db.toFixed(1)}dB` : '';
       const title = `${clipName} | start ${fmtSec(ev.position_seconds)} | len ${fmtSec(dur)}${gainText ? ` | ${gainText}` : ''}`;
-      return `
-        <div class="h-clip" style="left:calc(${leftPct}% + 1px);width:calc(${widthPct}% - 2px);background:${color}" title="${title}">
-          ${fadeInPct > 0 ? `<div class="h-fade in" style="width:${fadeInPct}%"></div>` : ''}
-          ${fadeOutPct > 0 ? `<div class="h-fade out" style="width:${fadeOutPct}%"></div>` : ''}
-          <span>${displayName}</span>
-          <span class="h-clip-meta">${fmtSec(dur)}</span>
-        </div>
-      `;
+      return `<div class="h-clip" style="left:calc(${leftPct}% + 1px);width:calc(${widthPct}% - 2px);background:${color}" title="${title}">
+          <span>${displayName}</span><span class="h-clip-meta">${fmtSec(dur)}</span>
+        </div>`;
     }).join('');
-    return `
-      <div class="timeline-lane ${label.toLowerCase()}">
-        <div class="timeline-lane-header">${label}</div>
-        <div class="h-ruler"><span>0:00</span><span>${fmtTime(total)}</span></div>
-        <div class="h-track">${blocks}</div>
-      </div>
-    `;
+
+    // Crossfade overlays — single solid blended box over exact overlap region
+    const overlays = [];
+    const coveredIn = new Set(), coveredOut = new Set();
+
+    for (let i = 0; i < events.length - 1; i++) {
+      const curr = events[i], next = events[i + 1];
+      const currDur = Math.max(0.001, curr.source_end_seconds - curr.source_start_seconds);
+      const currEnd = curr.position_seconds + currDur;
+      if (next.position_seconds < currEnd) {
+        const xStart = next.position_seconds;
+        const xDur   = Math.max(0.001, currEnd - xStart);
+        const blended = blendColor(clipColors[curr.asset_id], clipColors[next.asset_id], 0.55);
+        overlays.push(`<div class="h-fade-overlay" style="left:${pct(xStart)}%;width:${Math.max(0.3, pct(xDur))}%;background:${blended}" title="Crossfade ${fmtSec(xDur)}"></div>`);
+        coveredIn.add(i + 1);
+        coveredOut.add(i);
+      }
+    }
+
+    // Standalone clip fades (not part of a crossfade)
+    events.forEach((ev, i) => {
+      const dur = Math.max(0.001, ev.source_end_seconds - ev.source_start_seconds);
+      const c = hexToRgba(clipColors[ev.asset_id] || '#888888', 0.45);
+      if ((ev.fade_in_seconds || 0) > 0 && !coveredIn.has(i)) {
+        overlays.push(`<div class="h-fade-overlay" style="left:${pct(ev.position_seconds)}%;width:${Math.max(0.2, pct(ev.fade_in_seconds))}%;background:${c}" title="Fade in ${fmtSec(ev.fade_in_seconds)}"></div>`);
+      }
+      if ((ev.fade_out_seconds || 0) > 0 && !coveredOut.has(i)) {
+        const fadeStart = ev.position_seconds + dur - ev.fade_out_seconds;
+        overlays.push(`<div class="h-fade-overlay" style="left:${pct(fadeStart)}%;width:${Math.max(0.2, pct(ev.fade_out_seconds))}%;background:${c}" title="Fade out ${fmtSec(ev.fade_out_seconds)}"></div>`);
+      }
+    });
+
+    // Master fade overlays (dark overlay at start/end)
+    if (masterFadeIn  > 0) overlays.push(`<div class="h-fade-overlay" style="left:0%;width:${Math.max(0.3, pct(masterFadeIn))}%;background:rgba(0,0,0,0.42)" title="Master fade in ${fmtSec(masterFadeIn)}"></div>`);
+    if (masterFadeOut > 0) overlays.push(`<div class="h-fade-overlay" style="left:${pct(total - masterFadeOut)}%;width:${Math.max(0.3, pct(masterFadeOut))}%;background:rgba(0,0,0,0.42)" title="Master fade out ${fmtSec(masterFadeOut)}"></div>`);
+
+    return blocks + overlays.join('');
   }
 
-  const songLaneEvents = tl.events.filter(e => e.type === 'clip' && (e.layer || 'songs') === 'songs');
-  const soundLaneEvents = tl.events.filter(e => e.type === 'clip' && e.layer === 'sounds');
-
-  el('timelineEvents').innerHTML = `
-    ${renderLane(soundLaneEvents, 'Sounds')}
-    ${renderLane(songLaneEvents, 'Songs')}
-  `;
+  el('songsTrack').innerHTML  = buildTrackHtml(songClips);
+  el('soundsTrack').innerHTML = buildTrackHtml(soundClips);
+  buildDawRulerTicks(total);
+  el('dawContainer').style.display = '';
+  el('timelineEmpty').style.display = 'none';
+  el('dawPlayhead').style.left = '72px';
 }
 
 // ─────────────────────────────────────────────
@@ -1744,7 +1791,6 @@ async function doRender() {
   try {
     const res = await api('POST', `/api/projects/${projectId}/render`);
     loadAudio(`/api/projects/${projectId}/audio`, res.duration_seconds, res.size_mb);
-    toast(`\ud83c\udfa7 Rendered! ${fmtSec(res.duration_seconds)} \u00b7 ${res.size_mb} MB`, 'success');
   } catch(e) {
     toast('\u274c Render failed: ' + (e.detail || e.message), 'error');
   }
@@ -1754,36 +1800,82 @@ async function doRender() {
 // ─────────────────────────────────────────────
 // Audio player
 // ─────────────────────────────────────────────
+function fmtTimeFull(s) {
+  if (!isFinite(s) || s == null) return '0:00';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+function buildDawRulerTicks(duration) {
+  const container = el('dawRulerTicks');
+  if (!container || !duration) return;
+  let interval;
+  if (duration <= 30)        interval = 5;
+  else if (duration <= 120)  interval = 15;
+  else if (duration <= 300)  interval = 30;
+  else if (duration <= 600)  interval = 60;
+  else if (duration <= 3600) interval = 120;
+  else                       interval = 300;
+
+  let html = '';
+  for (let t = 0; t <= duration; t += interval) {
+    const leftPct = (t / duration) * 100;
+    const label = fmtTimeFull(t);
+    const atStart = t === 0;
+    const atEnd   = (t + interval) > duration;
+    const cls = atStart ? 'daw-tick-label at-start' : atEnd ? 'daw-tick-label at-end' : 'daw-tick-label';
+    if (t > 0) html += `<div class="daw-tick" style="left:${leftPct}%"></div>`;
+    html += `<div class="${cls}" style="left:${leftPct}%">${label}</div>`;
+  }
+  const lastTick = Math.floor(duration / interval) * interval;
+  if (lastTick < duration) {
+    html += `<div class="daw-tick-label at-end" style="left:100%">${fmtTimeFull(duration)}</div>`;
+  }
+  container.innerHTML = html;
+}
+
+function updateDawPlayhead(ratio) {
+  const ph = el('dawPlayhead');
+  const container = el('dawContainer');
+  if (!ph || !container || container.style.display === 'none') return;
+  const labelW = 72;
+  const totalW = container.clientWidth;
+  const trackW = Math.max(1, totalW - labelW);
+  ph.style.left = (labelW + ratio * trackW) + 'px';
+}
+
+function updatePlayhead() {
+  const audio = el('audioPlayer');
+  if (!audio) return;
+  const ratio = audio.duration ? (audio.currentTime / audio.duration) : 0;
+  el('playerTime').textContent = `${fmtTimeFull(audio.currentTime)} / ${fmtTimeFull(audio.duration || 0)}`;
+  updateDawPlayhead(ratio);
+}
+
 function setupPlayer() {
   const audio = el('audioPlayer');
-  const progress = el('playerProgress');
+  const ruler = el('dawRuler');
   let scrubbing = false;
 
-  audio.addEventListener('timeupdate', () => {
-    const pct = audio.duration ? (audio.currentTime / audio.duration * 100) : 0;
-    el('progressFill').style.width = pct + '%';
-    el('playerTime').textContent = `${fmtTime(audio.currentTime)} / ${fmtTime(audio.duration||0)}`;
-  });
+  audio.addEventListener('timeupdate', updatePlayhead);
   audio.addEventListener('ended', () => { el('playBtn').textContent = '\u25b6'; });
 
   function doSeek(clientX) {
     if (!audio.duration) return;
-    const rect = progress.getBoundingClientRect();
+    const rect = ruler.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     audio.currentTime = ratio * audio.duration;
+    updatePlayhead();
   }
 
-  progress.addEventListener('mousedown', e => {
-    e.preventDefault();
-    scrubbing = true;
-    doSeek(e.clientX);
-  });
-  window.addEventListener('mousemove', e => {
-    if (scrubbing) doSeek(e.clientX);
-  });
-  window.addEventListener('mouseup', () => {
-    scrubbing = false;
-  });
+  if (ruler) {
+    ruler.addEventListener('mousedown', e => { e.preventDefault(); scrubbing = true; doSeek(e.clientX); });
+  }
+  window.addEventListener('mousemove', e => { if (scrubbing) doSeek(e.clientX); });
+  window.addEventListener('mouseup', () => { scrubbing = false; });
 }
 
 function loadAudio(url, duration, sizeMb) {
@@ -1791,27 +1883,17 @@ function loadAudio(url, duration, sizeMb) {
   audio.src = url + '?t=' + Date.now();
   audio.load();
   el('playBtn').disabled = false;
-  el('playerTitle').textContent = '\ud83c\udfb5 CNC Audio Render';
-  el('playerSub').textContent = `${fmtSec(duration)} \u00b7 ${sizeMb} MB WAV \u00b7 44100 Hz stereo`;
+  buildDawRulerTicks(duration);
   const dl = el('downloadBtn');
   dl.href = `${url.replace('/audio', '/download')}?t=${Date.now()}`;
   dl.style.display = '';
+  toast(`\ud83c\udfa7 ${fmtSec(duration)} \u00b7 ${sizeMb} MB \u00b7 click the timeline ruler to seek`, 'success', 3000);
 }
 
 function togglePlay() {
   const audio = el('audioPlayer');
   if (audio.paused) { audio.play(); el('playBtn').textContent = '\u23f8'; }
   else { audio.pause(); el('playBtn').textContent = '\u25b6'; }
-}
-
-function seekAudio(e, explicitTarget) {
-  const audio = el('audioPlayer');
-  if (!audio.duration) return;
-  const target = explicitTarget || e.currentTarget;
-  if (!target) return;
-  const rect = target.getBoundingClientRect();
-  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  audio.currentTime = ratio * audio.duration;
 }
 
 // ─────────────────────────────────────────────

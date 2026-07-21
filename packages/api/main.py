@@ -159,6 +159,8 @@ def _default_render_settings(project) -> dict:
         "sound_gain_db": 0.0,
         "render_gain_db": 0.0,
         "normalize_output": project.export.normalize_output,
+        "master_fade_in_seconds": 0.0,
+        "master_fade_out_seconds": 0.0,
     }
 
 
@@ -182,6 +184,8 @@ def _ensure_layered_project_state(project) -> None:
     render.setdefault("sound_gain_db", 0.0)
     render.setdefault("render_gain_db", 0.0)
     render.setdefault("normalize_output", project.export.normalize_output)
+    render.setdefault("master_fade_in_seconds", 0.0)
+    render.setdefault("master_fade_out_seconds", 0.0)
 
     song_params = _load_parameters(meta["song_parameters"])
     sound_params = _load_parameters(meta["sound_parameters"])
@@ -245,6 +249,8 @@ def _get_render_settings(project) -> dict:
     render["sound_gain_db"] = float(render["sound_gain_db"])
     render["render_gain_db"] = float(render["render_gain_db"])
     render["normalize_output"] = bool(render["normalize_output"])
+    render["master_fade_in_seconds"] = float(render.get("master_fade_in_seconds", 0.0))
+    render["master_fade_out_seconds"] = float(render.get("master_fade_out_seconds", 0.0))
     return render
 
 
@@ -256,6 +262,8 @@ def _set_render_settings(project, render_settings: dict) -> None:
         "sound_gain_db": float(render_settings["sound_gain_db"]),
         "render_gain_db": float(render_settings["render_gain_db"]),
         "normalize_output": bool(render_settings["normalize_output"]),
+        "master_fade_in_seconds": float(render_settings.get("master_fade_in_seconds", 0.0)),
+        "master_fade_out_seconds": float(render_settings.get("master_fade_out_seconds", 0.0)),
     }
     project.export.normalize_output = bool(render_settings["normalize_output"])
 
@@ -600,6 +608,8 @@ class RenderSettingsRequest(BaseModel):
     sound_gain_db: float = 0.0
     render_gain_db: float = 0.0
     normalize_output: bool = True
+    master_fade_in_seconds: float = 0.0
+    master_fade_out_seconds: float = 0.0
 
 
 class ParametersRequest(BaseModel):
@@ -955,7 +965,9 @@ def render(project_id: str):
     output_path = _download_output_path(project_id, project)
 
     try:
-        render_timeline(render_timeline_obj, asset_wav_map, str(output_path), project.export)
+        render_timeline(render_timeline_obj, asset_wav_map, str(output_path), project.export,
+                        master_fade_in=render_settings.get("master_fade_in_seconds", 0.0),
+                        master_fade_out=render_settings.get("master_fade_out_seconds", 0.0))
         shutil.copyfile(str(output_path), str(latest_path))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Render failed: {e}")
