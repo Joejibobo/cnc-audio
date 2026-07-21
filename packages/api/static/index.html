@@ -1745,10 +1745,13 @@ function renderTimeline(project) {
       const currDur = Math.max(0.001, curr.source_end_seconds - curr.source_start_seconds);
       const currEnd = curr.position_seconds + currDur;
       if (next.position_seconds < currEnd) {
-        const xStart = next.position_seconds;
-        const xDur   = Math.max(0.001, currEnd - xStart);
+        const xDur = Math.max(0.001, currEnd - next.position_seconds);
+        // Center the overlay on the visual transition point (next.position_seconds)
+        // so it equally straddles the end of the left clip and start of the right clip
+        const overlayCenterSec = next.position_seconds;
+        const overlayStartSec = overlayCenterSec - xDur / 2;
         const blended = blendColor(clipColors[curr.asset_id], clipColors[next.asset_id], 0.55);
-        overlays.push(`<div class="h-fade-overlay" style="left:${pct(xStart)}%;width:${Math.max(0.3, pct(xDur))}%;background:${blended}" title="Crossfade ${fmtSec(xDur)}"></div>`);
+        overlays.push(`<div class="h-fade-overlay" style="left:${pct(Math.max(0, overlayStartSec))}%;width:${Math.max(0.3, pct(xDur))}%;background:${blended}" title="Crossfade ${fmtSec(xDur)}"></div>`);
         coveredIn.add(i + 1);
         coveredOut.add(i);
       }
@@ -1857,22 +1860,32 @@ function updatePlayhead() {
 
 function setupPlayer() {
   const audio = el('audioPlayer');
-  const ruler = el('dawRuler');
   let scrubbing = false;
 
   audio.addEventListener('timeupdate', updatePlayhead);
   audio.addEventListener('ended', () => { el('playBtn').textContent = '\u25b6'; });
 
+  // Seek using the ruler's horizontal bounding rect as reference.
+  // Works whether the user clicks on the ruler row or any track row.
   function doSeek(clientX) {
     if (!audio.duration) return;
+    const ruler = el('dawRuler');
+    if (!ruler) return;
     const rect = ruler.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     audio.currentTime = ratio * audio.duration;
     updatePlayhead();
   }
 
-  if (ruler) {
-    ruler.addEventListener('mousedown', e => { e.preventDefault(); scrubbing = true; doSeek(e.clientX); });
+  // Attach to the entire daw-container so any row click seeks
+  const container = el('dawContainer');
+  if (container) {
+    container.addEventListener('mousedown', e => {
+      // Only seek on direct row clicks, not on clip label clicks
+      e.preventDefault();
+      scrubbing = true;
+      doSeek(e.clientX);
+    });
   }
   window.addEventListener('mousemove', e => { if (scrubbing) doSeek(e.clientX); });
   window.addEventListener('mouseup', () => { scrubbing = false; });

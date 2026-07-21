@@ -450,6 +450,27 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
                 position += sil_dur
 
     # Fill any remaining gap (e.g. from crossfade math)
+
+    # Post-loop: enforce duration_rule on the actual last clip.
+    # The in-loop `is_last` check can miss the final clip when a crossfade
+    # pulls `position` back so that `position + dur < target` even though
+    # no further clips will fit. Apply trim/fade here unconditionally.
+    if last_clip_event is not None and params.duration_rule in ("trim_last", "fade_last"):
+        last_dur = last_clip_event.source_end_seconds - last_clip_event.source_start_seconds
+        last_end = last_clip_event.position_seconds + last_dur
+        if last_end > target:
+            new_dur = max(0.001, target - last_clip_event.position_seconds)
+            last_clip_event.source_end_seconds = round(
+                last_clip_event.source_start_seconds + new_dur, 4
+            )
+            last_dur = new_dur
+        if (
+            params.duration_rule == "fade_last"
+            and last_clip_event.fade_out_seconds == 0.0
+            and last_dur > 0
+        ):
+            last_clip_event.fade_out_seconds = round(min(2.0, last_dur * 0.30), 4)
+
     if position < target:
         if params.duration_rule == "fill_random_clip":
             position = _fill_remaining_with_random_clip(
