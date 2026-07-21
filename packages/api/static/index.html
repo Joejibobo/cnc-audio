@@ -228,7 +228,7 @@
   .daw-tick-label.at-end   { transform: translateX(-100%); }
   .daw-playhead {
     position: absolute; top: 0; bottom: 0; width: 2px;
-    background: var(--accent); pointer-events: none; z-index: 20;
+    background: var(--accent); pointer-events: none; z-index: 10000;
     box-shadow: 0 0 8px rgba(0,212,180,0.65);
     left: 72px;
   }
@@ -1942,11 +1942,25 @@ function renderTimeline(project) {
         </div>`;
     }).join('');
 
-    // Master fade overlays (directional gradient, no hard edge)
+    // Master fade overlays — anchored to the actual first/last clip in THIS
+    // track, not to the full render length.  This prevents the overlay from
+    // painting over empty space when songs/sounds tracks end before the total.
     const overlays = [];
-    if (masterFadeIn  > 0) overlays.push(`<div class="h-fade-overlay" style="left:0%;width:${Math.max(0.3, pct(masterFadeIn))}%;z-index:999;background:linear-gradient(to right,rgba(0,0,0,0.65) 0%,transparent 100%)" title="Master fade in ${fmtSec(masterFadeIn)}"></div>`);
-    if (masterFadeOut > 0) overlays.push(`<div class="h-fade-overlay" style="left:${pct(total - masterFadeOut)}%;width:${Math.max(0.3, pct(masterFadeOut))}%;z-index:999;background:linear-gradient(to left,rgba(0,0,0,0.65) 0%,transparent 100%)" title="Master fade out ${fmtSec(masterFadeOut)}"></div>`);
+    if (events.length > 0) {
+      const firstEv  = events[0];
+      const lastEv   = events[events.length - 1];
+      const lastEnd  = lastEv.position_seconds +
+                       Math.max(0.001, lastEv.source_end_seconds - lastEv.source_start_seconds);
 
+      if (masterFadeIn > 0) {
+        const fadeW = Math.min(masterFadeIn, lastEnd - firstEv.position_seconds);
+        overlays.push(`<div class="h-fade-overlay" style="left:${pct(firstEv.position_seconds)}%;width:${Math.max(0.3, pct(fadeW))}%;z-index:9999;background:linear-gradient(to right,rgba(0,0,0,0.65) 0%,transparent 100%)" title="Master fade in ${fmtSec(masterFadeIn)}"></div>`);
+      }
+      if (masterFadeOut > 0) {
+        const fadeW = Math.min(masterFadeOut, lastEnd - firstEv.position_seconds);
+        overlays.push(`<div class="h-fade-overlay" style="left:${pct(lastEnd - fadeW)}%;width:${Math.max(0.3, pct(fadeW))}%;z-index:9999;background:linear-gradient(to left,rgba(0,0,0,0.65) 0%,transparent 100%)" title="Master fade out ${fmtSec(masterFadeOut)}"></div>`);
+      }
+    }
     return blocks + overlays.join('');
   }
 
