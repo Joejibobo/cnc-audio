@@ -656,8 +656,8 @@
         <span style="flex:1"></span>
         <span id="tlSeed" style="font-family:monospace;font-size:11px"></span>
         <div style="display:flex;align-items:center;gap:6px;margin-left:16px">
-          <button id="dawZoomOutBtn" class="btn btn-secondary btn-sm" onclick="dawZoomOut()" title="Zoom out" style="padding:2px 8px;font-size:14px;line-height:1" disabled>−</button>
           <button class="btn btn-secondary btn-sm" onclick="dawZoomReset()" title="Reset zoom to 1×" style="padding:2px 7px;font-size:11px;line-height:1">1×</button>
+          <button id="dawZoomOutBtn" class="btn btn-secondary btn-sm" onclick="dawZoomOut()" title="Zoom out" style="padding:2px 8px;font-size:14px;line-height:1" disabled>−</button>
           <span id="dawZoomLabel" style="font-family:monospace;font-size:11px;min-width:28px;text-align:center">1×</span>
           <button class="btn btn-secondary btn-sm" onclick="dawZoomIn()" title="Zoom in" style="padding:2px 8px;font-size:14px;line-height:1">+</button>
         </div>
@@ -2005,15 +2005,18 @@ const DAW_ZOOM_STEPS = [1, 1.5, 2, 3, 4, 6, 8];
 function applyDawZoom() {
   const inner = el('dawScrollInner');
   if (inner) {
-    // At 1× minWidth:100% fills the container (no scroll).
-    // At >1× we also set an explicit width so the inner actually expands
-    // past 100% and the container scrolls.
-    inner.style.minWidth = '100%';
-    inner.style.width    = dawZoom > 1 ? (dawZoom * 100) + '%' : '';
+    if (dawZoom > 1) {
+      // Zoomed: explicit pixel-overflowing width so the container scrolls
+      inner.style.width    = (dawZoom * 100) + '%';
+      inner.style.minWidth = '100%';
+    } else {
+      // 1× (fit): slight right buffer so clips don't bleed to screen edge
+      inner.style.width    = 'calc(100% - 20px)';
+      inner.style.minWidth = '';
+    }
   }
   const lbl = el('dawZoomLabel');
   if (lbl) lbl.textContent = `${dawZoom}×`;
-  // Grey-out the − button at minimum zoom
   const zoomOutBtn = el('dawZoomOutBtn');
   if (zoomOutBtn) zoomOutBtn.disabled = dawZoom <= DAW_ZOOM_STEPS[0];
 }
