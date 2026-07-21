@@ -67,6 +67,9 @@
   .upload-zone .icon { font-size: 24px; margin-bottom: 6px; }
   .upload-zone p { color: var(--text-dim); font-size: 12px; line-height: 1.6; }
   .upload-zone strong { color: var(--accent); }
+  .upload-zone.compact { padding: 10px 12px; }
+  .upload-zone.compact .icon { font-size: 15px; margin-bottom: 0; }
+  .upload-zone.compact p { font-size: 11px; line-height: 1.3; }
 
   /* Clip list */
   .clip-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; min-height: 0; }
@@ -102,6 +105,19 @@
   input[type=number]:focus, input[type=text]:focus, select:focus { border-color: var(--accent); }
   select option { background: var(--surface2); }
   input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+  .slider-manual-input {
+    margin-top: 6px;
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 12px;
+    padding: 6px 8px;
+    outline: none;
+  }
+  .slider-manual-input:focus { border-color: var(--accent); }
 
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .toggle-row > label:last-child { font-size: 13px; cursor: pointer; }
@@ -148,9 +164,9 @@
   .tl-event { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px; margin-bottom: 4px; border: 1px solid var(--border); background: var(--surface2); }
   .tl-event.silence { background: transparent; border-style: dashed; opacity: 0.5; }
   .tl-event-pos { font-size: 11px; color: var(--text-dim); width: 52px; flex-shrink: 0; font-family: monospace; }
-  .tl-event-bar { flex: 1; }
+  .tl-event-bar { flex: 1; min-width: 0; }
   .tl-event-fill { height: 22px; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #000; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .tl-event-meta { font-size: 11px; color: var(--text-dim); width: 130px; flex-shrink: 0; text-align: right; white-space: nowrap; }
+  .tl-event-meta { font-size: 10px; color: var(--text-dim); width: 160px; flex-shrink: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Player */
   .player-section { background: var(--surface); border-top: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
@@ -160,8 +176,9 @@
   .player-info { min-width: 140px; }
   .player-title { font-size: 13px; font-weight: 600; }
   .player-sub { font-size: 11px; color: var(--text-dim); }
-  .player-progress { flex: 1; height: 4px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
-  .player-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; }
+  .player-progress { flex: 1; height: 18px; background: transparent; cursor: pointer; position: relative; display: flex; align-items: center; }
+  .player-progress-track { position: absolute; left: 0; right: 0; height: 4px; background: var(--border); border-radius: 2px; pointer-events: none; }
+  .player-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; pointer-events: none; }
   .player-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; font-family: monospace; }
 
   /* Toast */
@@ -178,6 +195,26 @@
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* Floating tooltip */
+  #floatTooltip {
+    position: fixed; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; font-size: 12px; color: var(--text); max-width: 260px; line-height: 1.5;
+    pointer-events: none; z-index: 9999; box-shadow: 0 4px 16px rgba(0,0,0,0.6); display: none;
+    font-weight: 400; text-transform: none; letter-spacing: 0;
+  }
+  .tip { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--border); color: var(--text-dim); font-size: 10px; cursor: help;
+    flex-shrink: 0; margin-left: 4px; vertical-align: middle; }
+  
+  /* HH:MM:SS duration inputs */
+  .hms-row { display: flex; gap: 6px; margin-top: 6px; }
+  .hms-field { display: flex; align-items: center; gap: 4px; flex: 1; }
+  .hms-field input { width: 100%; padding: 5px 6px; font-size: 13px; text-align: center; }
+  .hms-field span { font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
+
+  /* Repeat options sub-section */
+  #repeatOptions { padding-left: 12px; border-left: 2px solid var(--border); margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -185,9 +222,11 @@
 <header>
   <div class="logo">CNC<span> Audio</span></div>
   <span style="color:var(--border)">|</span>
-  <input class="project-name-input" id="projectName" type="text" placeholder="Project name..." value="Untitled Project">
+  <input class="project-name-input" id="projectName" type="text" placeholder="Project name…" value="Untitled Project" oninput="debounceProjectName()">
   <div class="header-actions">
-    <span id="statusBadge" style="font-size:12px;color:var(--text-dim)">Starting...</span>
+    <button class="btn btn-secondary btn-sm" onclick="resetSettingsToDefault()" title="Reset all parameters to their defaults" data-tip="Reset all parameters to their defaults">↺ Reset</button>
+    <button class="btn btn-secondary btn-sm" onclick="saveSettingsToStorage()" title="Save current settings so they load automatically next time" data-tip="Save current settings so they load automatically next time" style="border-color:var(--accent);color:var(--accent)">💾 Save Settings</button>
+    <span id="statusBadge" style="font-size:12px;color:var(--text-dim)">Starting…</span>
   </div>
 </header>
 
@@ -199,15 +238,15 @@
     <!-- Clip Library header -->
     <div class="panel">
       <div class="panel-header" style="cursor:default">
-        Clip Library
+        🎵 Clip Library
         <span id="clipCount" style="color:var(--accent);font-size:12px;font-weight:700"></span>
       </div>
     </div>
 
     <!-- Upload zone -->
     <div id="uploadZone" class="upload-zone" onclick="document.getElementById('fileInput').click()">
-      <div class="icon">+</div>
-      <p><strong>Click or drag &amp; drop</strong><br>
+      <div class="icon" id="uploadIcon">📂</div>
+      <p id="uploadText"><strong>Click or drag &amp; drop</strong><br>
       Audio: MP3, WAV, FLAC, AAC, OGG<br>
       Video: MP4, MOV, AVI, MKV (audio extracted)</p>
     </div>
@@ -225,31 +264,53 @@
 
       <!-- Track Duration -->
       <div class="panel">
-        <div class="panel-header" onclick="togglePanel(this)">Track Duration <span class="chevron">v</span></div>
+        <div class="panel-header" onclick="togglePanel(this)">⏱ Track Duration <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="form-row">
-            <label>Total Length <span class="range-display" id="durationDisplay">60s</span></label>
-            <input type="range" id="targetDuration" min="10" max="3600" value="60" step="5"
-              oninput="el('durationDisplay').textContent=fmtSec(+this.value); debounceParams()">
+            <label>Total Length <span class="range-display" id="durationDisplay">1m 0.0s</span>
+              <span class="tip" data-tip="The total target duration of the generated track. The generator will fill this length with clips from your library. Maximum is limited to the total unique audio content available.">&#9432;</span>
+            </label>
+            <input type="range" id="targetDuration" min="1" max="3600" value="60" step="1" data-no-manual
+              oninput="el('durationDisplay').textContent=fmtSec(+this.value); syncDurationHMS(+this.value); debounceParams()">
+            <div class="hms-row">
+              <div class="hms-field">
+                <input type="number" id="durH" min="0" max="99" value="0" placeholder="0" oninput="onHMSInput()">
+                <span>h</span>
+              </div>
+              <div class="hms-field">
+                <input type="number" id="durM" min="0" max="59" value="1" placeholder="0" oninput="onHMSInput()">
+                <span>m</span>
+              </div>
+              <div class="hms-field">
+                <input type="number" id="durS" min="0" max="59" value="0" placeholder="0" oninput="onHMSInput()">
+                <span>s</span>
+              </div>
+            </div>
           </div>
           <div class="form-row-inline">
             <div class="form-row">
-              <label>Clip Min <span class="range-display" id="clipMinD">2.0s</span></label>
+              <label>Clip Min <span class="range-display" id="clipMinD">2.0s</span>
+                <span class="tip" data-tip="Minimum duration for each clip segment placed on the timeline. Clips shorter than this will be excluded from selection.">&#9432;</span>
+              </label>
               <input type="range" id="clipMin" min="0.5" max="60" value="2" step="0.5"
                 oninput="el('clipMinD').textContent=this.value+'s'; debounceParams()">
             </div>
             <div class="form-row">
-              <label>Clip Max <span class="range-display" id="clipMaxD">8.0s</span></label>
+              <label>Clip Max <span class="range-display" id="clipMaxD">8.0s</span>
+                <span class="tip" data-tip="Maximum duration for each clip segment placed on the timeline. Capped at the longest uploaded clip. Longer values = more of each clip used per placement.">&#9432;</span>
+              </label>
               <input type="range" id="clipMax" min="1" max="120" value="8" step="0.5"
                 oninput="el('clipMaxD').textContent=this.value+'s'; debounceParams()">
             </div>
           </div>
           <div class="form-row">
-            <label>End Rule</label>
+            <label>End Rule <span class="tip" data-tip="Controls what happens when the last clip doesn't perfectly fill the remaining track length: Fade — fade it out early. Hard cut — abrupt end. Pad — add silence to reach target. Fill tail — add one more random clip to cover remaining time. Extend — stretch the last clip to the target length.">&#9432;</span></label>
             <select id="durationRule" onchange="debounceParams()">
               <option value="fade_last">Fade out last clip</option>
               <option value="trim_last">Hard cut</option>
               <option value="pad_silence">Pad with silence</option>
+              <option value="fill_random_clip">Fill tail with random clip</option>
+              <option value="extend_last_clip">Extend last clip</option>
             </select>
           </div>
         </div>
@@ -257,60 +318,85 @@
 
       <!-- Selection -->
       <div class="panel">
-        <div class="panel-header" onclick="togglePanel(this)">Selection <span class="chevron">v</span></div>
+        <div class="panel-header" onclick="togglePanel(this)">🎲 Selection <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="form-row">
-            <label>Mode</label>
-            <select id="distribution" onchange="debounceParams()">
-              <option value="weighted">Weighted (by clip weight)</option>
+            <label>Mode <span class="tip" data-tip="How clips are chosen from your library. Uniform: every clip has equal chance. Weighted: use the per-clip weight sliders to bias selection. Sequential: clips play in upload order, cycling through the list.">&#9432;</span></label>
+            <select id="distribution" onchange="onDistributionChange()">
               <option value="uniform">Uniform (equal chance)</option>
+              <option value="weighted">Weighted (by clip weight)</option>
               <option value="sequential">Sequential (in order)</option>
             </select>
           </div>
           <div class="form-row">
-            <label>Chaos <span class="range-display" id="chaosD">0.50</span></label>
-            <input type="range" id="chaos" min="0" max="1" value="0.5" step="0.05"
+            <label>Chaos <span class="range-display" id="chaosD">1.00</span>
+              <span class="tip" data-tip="Controls how strictly soft constraints (like minimum gap between repeats) are enforced. 0 = fully structured/deterministic. 1 = fully random, ignores soft preferences.">&#9432;</span>
+            </label>
+            <input type="range" id="chaos" min="0" max="1" value="1" step="0.05"
               oninput="el('chaosD').textContent=(+this.value).toFixed(2); debounceParams()">
-            <div class="hint">0 = structured &nbsp;&#183;&nbsp; 1 = fully random</div>
+            <div class="hint">0 = structured &nbsp;·&nbsp; 1 = fully random</div>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" id="allowRepeats" checked onchange="onAllowRepeatsChange()"><span class="toggle-slider"></span></label>
+            <label for="allowRepeats">Allow clip repeats <span class="tip" data-tip="When enabled, clips can be selected more than once. When disabled, each clip plays at most once (max_per_clip = 1).">&#9432;</span></label>
+          </div>
+          <div id="repeatOptions">
+            <div class="toggle-row">
+              <label class="toggle"><input type="checkbox" id="noRepeatSections" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
+              <label for="noRepeatSections">No repeat source sections <span class="tip" data-tip="When enabled, each repeat of a clip must use a different, non-overlapping portion of the source file. Prevents the same audio content from playing twice.">&#9432;</span></label>
+            </div>
+            <div class="form-row">
+              <label>Repeat Decay <span class="range-display" id="repeatDecayD">0%</span>
+                <span class="tip" data-tip="Reduces the selection probability of a clip each time it has already been used. 0% = no penalty (clips repeat freely). 100% = heavy penalty (strongly avoids repeating recently-used clips).">&#9432;</span>
+              </label>
+              <input type="range" id="repeatDecay" min="0" max="1" value="0" step="0.05"
+                oninput="el('repeatDecayD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
+            </div>
           </div>
           <div class="form-row-inline">
             <div class="form-row">
-              <label>Max Repeats</label>
-              <input type="number" id="maxPerClip" value="" min="1" max="999" placeholder="inf" oninput="debounceParams()">
+              <label>Max Repeats <span class="tip" data-tip="Maximum number of times any single clip can be selected. Leave blank for unlimited. Only applies when Allow Repeats is enabled.">&#9432;</span></label>
+              <input type="number" id="maxPerClip" value="" min="1" max="999" placeholder="∞" oninput="debounceParams()">
             </div>
             <div class="form-row">
-              <label>Min Gap</label>
+              <label>Min Gap <span class="tip" data-tip="Minimum number of OTHER clips that must play between two uses of the same clip. A soft preference — relaxed automatically if not enough clips are available.">&#9432;</span></label>
               <input type="number" id="minGapClips" value="0" min="0" max="50" oninput="debounceParams()">
             </div>
           </div>
           <div class="toggle-row">
             <label class="toggle"><input type="checkbox" id="allowConsecutive" onchange="debounceParams()"><span class="toggle-slider"></span></label>
-            <label for="allowConsecutive">Allow back-to-back repeats</label>
+            <label for="allowConsecutive">Allow back-to-back repeats <span class="tip" data-tip="When enabled, the same clip can play immediately after itself. When disabled, a different clip must play between any two uses of the same clip.">&#9432;</span></label>
           </div>
         </div>
       </div>
 
       <!-- Crossfade -->
       <div class="panel">
-        <div class="panel-header" onclick="togglePanel(this)">Crossfade <span class="chevron">v</span></div>
+        <div class="panel-header" onclick="togglePanel(this)">🌊 Crossfade <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="toggle-row">
             <label class="toggle"><input type="checkbox" id="crossfadeEnabled" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
-            <label for="crossfadeEnabled">Enable crossfades</label>
+            <label for="crossfadeEnabled">Enable crossfades <span class="tip" data-tip="Blend audio between consecutive clips by overlapping their end/start regions. Smooths transitions. When disabled, clips play back-to-back with no overlap.">&#9432;</span></label>
           </div>
           <div class="form-row">
-            <label>Probability <span class="range-display" id="xfadeProbD">80%</span></label>
+            <label>Probability <span class="range-display" id="xfadeProbD">80%</span>
+              <span class="tip" data-tip="Chance that any given transition between clips uses a crossfade. 100% = always crossfade. 0% = never.">&#9432;</span>
+            </label>
             <input type="range" id="crossfadeProb" min="0" max="1" value="0.8" step="0.05"
               oninput="el('xfadeProbD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
           </div>
           <div class="form-row-inline">
             <div class="form-row">
-              <label>Min <span class="range-display" id="xfadeMinD">0.1s</span></label>
+              <label>Min <span class="range-display" id="xfadeMinD">0.1s</span>
+                <span class="tip" data-tip="Shortest crossfade duration in seconds.">&#9432;</span>
+              </label>
               <input type="range" id="crossfadeMin" min="0.05" max="5" value="0.1" step="0.05"
                 oninput="el('xfadeMinD').textContent=this.value+'s'; debounceParams()">
             </div>
             <div class="form-row">
-              <label>Max <span class="range-display" id="xfadeMaxD">2.0s</span></label>
+              <label>Max <span class="range-display" id="xfadeMaxD">2.0s</span>
+                <span class="tip" data-tip="Longest crossfade duration in seconds. Actual duration is picked randomly between Min and Max.">&#9432;</span>
+              </label>
               <input type="range" id="crossfadeMax" min="0.1" max="10" value="2.0" step="0.1"
                 oninput="el('xfadeMaxD').textContent=this.value+'s'; debounceParams()">
             </div>
@@ -320,7 +406,7 @@
 
       <!-- Silence -->
       <div class="panel">
-        <div class="panel-header" onclick="togglePanel(this)">Silence Gaps <span class="chevron">v</span></div>
+        <div class="panel-header" onclick="togglePanel(this)">🤫 Silence Gaps <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="toggle-row">
             <label class="toggle"><input type="checkbox" id="silenceEnabled" onchange="debounceParams()"><span class="toggle-slider"></span></label>
@@ -348,7 +434,7 @@
 
       <!-- Gain -->
       <div class="panel">
-        <div class="panel-header" onclick="togglePanel(this)">Gain <span class="chevron">v</span></div>
+        <div class="panel-header" onclick="togglePanel(this)">🔊 Gain <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="toggle-row">
             <label class="toggle"><input type="checkbox" id="normalize" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
@@ -360,22 +446,22 @@
               oninput="el('targetLufsD').textContent=this.value+' LUFS'; debounceParams()">
           </div>
           <div class="form-row">
-            <label>Random Variation <span class="range-display" id="gainVarD">+/-0 dB</span></label>
+            <label>Random Variation <span class="range-display" id="gainVarD">±0 dB</span></label>
             <input type="range" id="gainVariation" min="0" max="12" value="0" step="0.5"
-              oninput="el('gainVarD').textContent='+/-'+this.value+' dB'; debounceParams()">
+              oninput="el('gainVarD').textContent='±'+this.value+' dB'; debounceParams()">
           </div>
         </div>
       </div>
 
       <!-- Seed -->
       <div class="panel">
-        <div class="panel-header" onclick="togglePanel(this)">Seed <span class="chevron">v</span></div>
+        <div class="panel-header" onclick="togglePanel(this)">🌱 Seed <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="form-row">
             <label>Generation Seed</label>
             <div class="seed-row">
-              <input type="text" id="seedInput" value="my-show-seed" placeholder="Enter seed..." oninput="debounceSeed()">
-              <button class="btn btn-secondary btn-icon" onclick="randomizeSeed()" title="Random seed">?</button>
+              <input type="text" id="seedInput" value="my-show-seed" placeholder="Enter seed…" oninput="debounceSeed()">
+              <button class="btn btn-secondary btn-icon" onclick="randomizeSeed()" title="Random seed">🎲</button>
             </div>
             <div class="hint">Same seed + same clips + same params = same track every time</div>
           </div>
@@ -391,10 +477,10 @@
     <!-- Actions bar -->
     <div class="actions-bar">
       <div id="feasibilityDisplay" style="flex:1;min-width:0">
-        <div class="feasibility-box" style="background:transparent;border:none;color:var(--text-dim);font-size:12px;">Starting...</div>
+        <div class="feasibility-box" style="background:transparent;border:none;color:var(--text-dim);font-size:12px;">Starting…</div>
       </div>
-      <button class="btn btn-secondary" id="generateBtn" onclick="doGenerate()" disabled>Generate</button>
-      <button class="btn btn-primary" id="renderBtn" onclick="doRender()" disabled>Render</button>
+      <button class="btn btn-secondary" id="generateBtn" onclick="doGenerate()" disabled>⚡ Generate</button>
+      <button class="btn btn-primary" id="renderBtn" onclick="doRender()" disabled>🎧 Render</button>
     </div>
 
     <!-- Timeline view -->
@@ -407,7 +493,7 @@
       </div>
       <div class="timeline-events" id="timelineEvents">
         <div class="tl-empty">
-          <div class="big">[ ]</div>
+          <div class="big">🎛️</div>
           <p style="font-size:15px;">Import clips, adjust parameters, then hit <strong>Generate</strong></p>
         </div>
       </div>
@@ -416,25 +502,30 @@
     <!-- Audio player -->
     <div class="player-section">
       <audio id="audioPlayer"></audio>
-      <button class="play-btn" id="playBtn" onclick="togglePlay()" disabled title="Play / Pause">&#9654;</button>
+      <button class="play-btn" id="playBtn" onclick="togglePlay()" disabled title="Play / Pause">▶</button>
       <div class="player-info">
         <div class="player-title" id="playerTitle">No render yet</div>
         <div class="player-sub" id="playerSub">Generate and render a timeline to hear your track</div>
       </div>
-      <div class="player-progress" id="playerProgress" onclick="seekAudio(event)">
-        <div class="player-progress-fill" id="progressFill"></div>
+      <div class="player-progress" id="playerProgress">
+        <div class="player-progress-track">
+          <div class="player-progress-fill" id="progressFill"></div>
+        </div>
       </div>
       <span class="player-time" id="playerTime">0:00 / 0:00</span>
-      <a id="downloadBtn" style="display:none" class="btn btn-secondary btn-sm" download="cnc-audio.wav">Download WAV</a>
+      <a id="downloadBtn" style="display:none" class="btn btn-secondary btn-sm" download="cnc-audio.wav">⬇ WAV</a>
     </div>
 
   </div><!-- /content -->
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
+<div id="floatTooltip"></div>
 
 <script>
+// ─────────────────────────────────────────────
 // Helpers
+// ─────────────────────────────────────────────
 const el = id => document.getElementById(id);
 function fmtSec(s) {
   if (!isFinite(s) || s == null) return '--';
@@ -462,45 +553,291 @@ function toast(msg, type='success', ms=4500) {
   return id;
 }
 
+// ─────────────────────────────────────────────
 // State
+// ─────────────────────────────────────────────
 let projectId = null;
+let projectNameTimer = null;
+let currentAssets = [];
 const COLORS = ['#00d4b4','#0099ff','#f5a623','#b44fff','#ff6b6b','#44d62c','#ff9f43','#54a0ff'];
 const clipColors = {};
 let colorIdx = 0;
 
+function updateTargetDurationMax(assets) {
+  const total = (assets || []).reduce((sum, a) => sum + (Number(a.duration_seconds) || 0), 0);
+  const slider = el('targetDuration');
+  if (!slider) return;
+  slider.min = "1";
+  if (assets && assets.length > 0) {
+    const maxValue = Math.max(1, Math.floor(total));
+    slider.max = String(maxValue);
+    if (Number(slider.value) > maxValue) {
+      slider.value = String(maxValue);
+      el('durationDisplay').textContent = fmtSec(maxValue);
+      debounceParams();
+    }
+  } else {
+    slider.max = "3600";
+  }
+
+  const manual = el(`${slider.id}Manual`);
+  if (manual) {
+    manual.max = slider.max;
+    manual.value = slider.value;
+  }
+}
+
+function attachManualInputToSlider(slider) {
+  if (!slider || slider.dataset.manualInputBound === '1' || slider.dataset.noManual !== undefined) return;
+  const manual = document.createElement('input');
+  manual.type = 'number';
+  manual.className = 'slider-manual-input';
+  manual.id = `${slider.id || `slider_${Math.random().toString(36).slice(2, 8)}`}Manual`;
+  manual.step = slider.step || '0.1';
+  manual.min = slider.min || '';
+  manual.max = slider.max || '';
+  manual.value = slider.value;
+
+  slider.insertAdjacentElement('afterend', manual);
+  slider.dataset.manualInputBound = '1';
+
+  slider.addEventListener('input', () => {
+    manual.value = slider.value;
+  });
+
+  manual.addEventListener('input', () => {
+    const v = Number(manual.value);
+    if (!Number.isFinite(v)) return;
+    const min = slider.min !== '' ? Number(slider.min) : v;
+    const max = slider.max !== '' ? Number(slider.max) : v;
+    const clamped = Math.max(min, Math.min(max, v));
+    slider.value = String(clamped);
+    slider.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+}
+
+function bindManualSliderInputs() {
+  document.querySelectorAll('input[type="range"]').forEach(attachManualInputToSlider);
+}
+
+function syncDurationHMS(totalSecs) {
+  const s = Math.max(0, Math.floor(totalSecs));
+  el('durH').value = Math.floor(s / 3600);
+  el('durM').value = Math.floor((s % 3600) / 60);
+  el('durS').value = s % 60;
+}
+
+function onHMSInput() {
+  const h = parseInt(el('durH').value) || 0;
+  const m = parseInt(el('durM').value) || 0;
+  const s = parseInt(el('durS').value) || 0;
+  const total = h * 3600 + m * 60 + s;
+  const slider = el('targetDuration');
+  const minV = parseFloat(slider.min) || 1;
+  const maxV = parseFloat(slider.max) || 3600;
+  const clamped = Math.max(minV, Math.min(maxV, Math.max(1, total)));
+  slider.value = String(clamped);
+  el('durationDisplay').textContent = fmtSec(clamped);
+  debounceParams();
+}
+
+function updateClipMaxMax(assets) {
+  const slider = el('clipMax');
+  if (!slider) return;
+  if (assets && assets.length > 0) {
+    const maxDur = Math.max(...assets.map(a => Number(a.duration_seconds) || 0));
+    const newMax = Math.max(1, Math.ceil(maxDur));
+    slider.max = String(newMax);
+    const manualInput = el('clipMaxManual');
+    if (manualInput) manualInput.max = String(newMax);
+    if (Number(slider.value) > newMax) {
+      slider.value = String(newMax);
+      el('clipMaxD').textContent = newMax + 's';
+    }
+  } else {
+    slider.max = "120";
+  }
+}
+
+// ─────────────────────────────────────────────
+// Settings persistence (localStorage)
+// ─────────────────────────────────────────────
+const SETTINGS_KEY = 'cnc_audio_settings';
+
+const SETTINGS_DEFAULTS = {
+  targetDuration: '60', clipMin: '2', clipMax: '8', durationRule: 'fade_last',
+  distribution: 'uniform', chaos: '1', allowRepeats: true, noRepeatSections: true,
+  repeatDecay: '0', maxPerClip: '', minGapClips: '0', allowConsecutive: false,
+  crossfadeEnabled: true, crossfadeProb: '0.8', crossfadeMin: '0.1', crossfadeMax: '2.0',
+  silenceEnabled: false, silenceProb: '0.3', silenceMin: '0.2', silenceMax: '2.0',
+  normalize: true, targetLufs: '-18', gainVariation: '0',
+  seedInput: 'my-show-seed',
+};
+
+function collectSettings() {
+  return {
+    targetDuration: el('targetDuration').value,
+    clipMin:        el('clipMin').value,
+    clipMax:        el('clipMax').value,
+    durationRule:   el('durationRule').value,
+    distribution:   el('distribution').value,
+    chaos:          el('chaos').value,
+    allowRepeats:   el('allowRepeats').checked,
+    noRepeatSections: el('noRepeatSections').checked,
+    repeatDecay:    el('repeatDecay').value,
+    maxPerClip:     el('maxPerClip').value,
+    minGapClips:    el('minGapClips').value,
+    allowConsecutive: el('allowConsecutive').checked,
+    crossfadeEnabled: el('crossfadeEnabled').checked,
+    crossfadeProb:  el('crossfadeProb').value,
+    crossfadeMin:   el('crossfadeMin').value,
+    crossfadeMax:   el('crossfadeMax').value,
+    silenceEnabled: el('silenceEnabled').checked,
+    silenceProb:    el('silenceProb').value,
+    silenceMin:     el('silenceMin').value,
+    silenceMax:     el('silenceMax').value,
+    normalize:      el('normalize').checked,
+    targetLufs:     el('targetLufs').value,
+    gainVariation:  el('gainVariation').value,
+    seedInput:      el('seedInput').value,
+  };
+}
+
+function applySettings(s) {
+  function setSlider(id, val, displayId, fmt) {
+    const sl = el(id); if (!sl) return;
+    sl.value = val;
+    if (displayId) el(displayId).textContent = fmt ? fmt(val) : val;
+    sl.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function setCheck(id, val) { const e2 = el(id); if (e2) e2.checked = val; }
+  function setVal(id, val)   { const e2 = el(id); if (e2) e2.value = val; }
+
+  setSlider('targetDuration', s.targetDuration, 'durationDisplay', v => fmtSec(+v));
+  syncDurationHMS(+s.targetDuration);
+  setSlider('clipMin',   s.clipMin,   'clipMinD',   v => v + 's');
+  setSlider('clipMax',   s.clipMax,   'clipMaxD',   v => v + 's');
+  setVal('durationRule', s.durationRule);
+  setVal('distribution', s.distribution);
+  setSlider('chaos', s.chaos, 'chaosD', v => (+v).toFixed(2));
+  setCheck('allowRepeats', s.allowRepeats);
+  setCheck('noRepeatSections', s.noRepeatSections);
+  setSlider('repeatDecay', s.repeatDecay, 'repeatDecayD', v => Math.round(+v * 100) + '%');
+  setVal('maxPerClip', s.maxPerClip);
+  setVal('minGapClips', s.minGapClips);
+  setCheck('allowConsecutive', s.allowConsecutive);
+  setCheck('crossfadeEnabled', s.crossfadeEnabled);
+  setSlider('crossfadeProb', s.crossfadeProb, 'xfadeProbD', v => Math.round(+v * 100) + '%');
+  setSlider('crossfadeMin',  s.crossfadeMin,  'xfadeMinD',  v => v + 's');
+  setSlider('crossfadeMax',  s.crossfadeMax,  'xfadeMaxD',  v => v + 's');
+  setCheck('silenceEnabled', s.silenceEnabled);
+  setSlider('silenceProb', s.silenceProb, 'silProbD', v => Math.round(+v * 100) + '%');
+  setSlider('silenceMin',  s.silenceMin,  'silMinD',  v => v + 's');
+  setSlider('silenceMax',  s.silenceMax,  'silMaxD',  v => v + 's');
+  setCheck('normalize', s.normalize);
+  setSlider('targetLufs',    s.targetLufs,    'targetLufsD', v => v + ' LUFS');
+  setSlider('gainVariation', s.gainVariation, 'gainVarD',    v => '\u00b1' + v + ' dB');
+  setVal('seedInput', s.seedInput);
+
+  // Sync dependent UI state
+  onAllowRepeatsChange();
+  renderClipList(currentAssets);
+  bindManualSliderInputs();
+}
+
+function saveSettingsToStorage() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(collectSettings()));
+  toast('\ud83d\udcbe Settings saved', 'success', 2500);
+}
+
+function resetSettingsToDefault() {
+  localStorage.removeItem(SETTINGS_KEY);
+  applySettings(SETTINGS_DEFAULTS);
+  debounceParams();
+  toast('\u21ba Settings reset to defaults', 'success', 2500);
+}
+
+function loadSavedSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) applySettings({ ...SETTINGS_DEFAULTS, ...JSON.parse(raw) });
+  } catch(e) { /* corrupted storage — ignore */ }
+}
+
+// ─────────────────────────────────────────────
 // Boot
+// ─────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
   const res = await api('POST', '/api/projects', {name: 'Untitled Project'});
   projectId = res.id;
+  el('projectName').value = res.project?.name || 'Untitled Project';
   el('statusBadge').textContent = `Session: ${projectId.slice(0,8)}`;
   setupDragDrop();
   setupPlayer();
+  setupTooltip();
+  syncDurationHMS(60);
+  bindManualSliderInputs();
+  loadSavedSettings();           // restore persisted settings before first saveParams
+  await refreshProject();
   await checkFeasibility();
 });
 
+// ─────────────────────────────────────────────
 // Upload
+// ─────────────────────────────────────────────
 el('fileInput').addEventListener('change', e => { uploadFiles([...e.target.files]); e.target.value=''; });
 
 function setupDragDrop() {
   const zone = el('uploadZone');
   zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
   zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-  zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); uploadFiles([...e.dataTransfer.files]); });
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    zone.classList.remove('drag-over');
+    uploadFiles([...e.dataTransfer.files]);
+  });
+
+  document.addEventListener('dragover', e => {
+    e.preventDefault();
+  });
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    const files = [...(e.dataTransfer?.files || [])];
+    if (files.length) {
+      uploadFiles(files);
+    }
+  });
+}
+
+function updateUploadZoneState(assetCount) {
+  const zone = el('uploadZone');
+  const icon = el('uploadIcon');
+  const text = el('uploadText');
+  if (assetCount > 0) {
+    zone.classList.add('compact');
+    icon.textContent = '+';
+    text.innerHTML = '<strong>Add more clips</strong><br>Click or drag files anywhere';
+  } else {
+    zone.classList.remove('compact');
+    icon.textContent = '\ud83d\udcc2';
+    text.innerHTML = '<strong>Click or drag &amp; drop</strong><br>Audio: MP3, WAV, FLAC, AAC, OGG<br>Video: MP4, MOV, AVI, MKV (audio extracted)';
+  }
 }
 
 async function uploadFiles(files) {
   for (const f of files) {
-    const tid = toast(`Importing "${f.name}"...`, 'warn', 0);
+    const tid = toast(`Importing "${f.name}"\u2026`, 'warn', 0);
     try {
       const fd = new FormData(); fd.append('file', f);
       const r = await fetch(`/api/projects/${projectId}/assets`, {method:'POST', body:fd});
       const data = await r.json();
       if (!r.ok) throw new Error(data.detail || 'Import failed');
       el(`t${tid}`)?.remove();
-      toast(`OK "${data.name}" - ${fmtSec(data.duration_seconds)}`, 'success');
+      toast(`\u2705 "${data.name}" \u2014 ${fmtSec(data.duration_seconds)}`, 'success');
     } catch(e) {
       el(`t${tid}`)?.remove();
-      toast(`Import failed: ${e.message}`, 'error');
+      toast(`\u274c Import failed: ${e.message}`, 'error');
     }
   }
   await refreshProject();
@@ -515,12 +852,22 @@ async function deleteAsset(assetId) {
 
 async function refreshProject() {
   const p = await api('GET', `/api/projects/${projectId}`);
+  currentAssets = p.assets || [];
+  el('projectName').value = p.project?.name || el('projectName').value || 'Untitled Project';
+  if (p.parameters?.selection?.distribution) {
+    el('distribution').value = p.parameters.selection.distribution;
+  }
   renderClipList(p.assets || []);
+  updateUploadZoneState((p.assets || []).length);
+  updateTargetDurationMax(p.assets || []);
+  updateClipMaxMax(p.assets || []);
+  bindManualSliderInputs();
   if (p.timeline) renderTimeline(p);
   return p;
 }
 
 function renderClipList(assets) {
+  const weightedMode = el('distribution').value === 'weighted';
   el('clipCount').textContent = assets.length ? `(${assets.length})` : '';
   if (!assets.length) {
     el('clipList').innerHTML = '<div id="clipEmpty" style="text-align:center;color:var(--text-dim);padding:20px 8px;font-size:12px;">Upload clips to begin</div>';
@@ -532,28 +879,49 @@ function renderClipList(assets) {
     return `
     <div class="clip-item">
       <div class="clip-item-header">
-        <span class="clip-icon" style="color:${c}">&#9632;</span>
+        <span class="clip-icon" style="color:${c}">◼</span>
         <span class="clip-name" title="${a.name}">${a.name}</span>
         <span class="clip-duration">${fmtSec(a.duration_seconds)}</span>
-        <button class="clip-delete" onclick="deleteAsset('${a.id}')">x</button>
+        <button class="clip-delete" onclick="deleteAsset('${a.id}')">\u2715</button>
       </div>
-      <div class="clip-weight-row">
+      ${weightedMode ? `<div class="clip-weight-row">
         <label>Weight</label>
-        <input type="range" min="0.1" max="5" step="0.1" value="${a.weight}"
-          oninput="this.nextElementSibling.textContent=parseFloat(this.value).toFixed(1)+'x'; el('w${a.id}').value=this.value; debounceParams()">
-        <span class="clip-weight-val">${parseFloat(a.weight).toFixed(1)}x</span>
+        <input type="range" id="wr${a.id}" min="0.1" max="5" step="0.1" value="${a.weight}"
+          oninput="el('wv${a.id}').textContent=parseFloat(this.value).toFixed(1)+'\u00d7'; el('w${a.id}').value=this.value; debounceParams()">
+        <span class="clip-weight-val" id="wv${a.id}">${parseFloat(a.weight).toFixed(1)}\u00d7</span>
         <input type="hidden" id="w${a.id}" value="${a.weight}">
-      </div>
+      </div>` : ''}
     </div>`;
   }).join('');
 }
 
+function onDistributionChange() {
+  renderClipList(currentAssets);
+  bindManualSliderInputs();
+  debounceParams();
+}
+
+function onAllowRepeatsChange() {
+  const allowed = el('allowRepeats').checked;
+  el('repeatOptions').style.display = allowed ? '' : 'none';
+  debounceParams();
+}
+
+// ─────────────────────────────────────────────
 // Parameters
+// ─────────────────────────────────────────────
 let pTimer, sTimer;
 function debounceParams() { clearTimeout(pTimer); pTimer = setTimeout(saveParams, 500); }
 function debounceSeed()   { clearTimeout(sTimer); sTimer = setTimeout(saveSeed, 500); }
+function debounceProjectName() {
+  if (projectNameTimer) clearTimeout(projectNameTimer);
+  projectNameTimer = setTimeout(saveProjectName, 500);
+}
 
 function getWeights() {
+  if (el('distribution').value !== 'weighted') {
+    return {};
+  }
   const w = {};
   document.querySelectorAll('[id^="w"]').forEach(inp => {
     const id = inp.id.slice(1);
@@ -574,6 +942,9 @@ async function saveParams() {
     max_per_clip: el('maxPerClip').value ? parseInt(el('maxPerClip').value) : null,
     min_gap_clips: parseInt(el('minGapClips').value) || 0,
     allow_consecutive: el('allowConsecutive').checked,
+    allow_repeats: el('allowRepeats').checked,
+    no_repeat_sections: el('noRepeatSections').checked,
+    repeat_decay: parseFloat(el('repeatDecay').value),
     crossfade_enabled: el('crossfadeEnabled').checked,
     crossfade_probability: parseFloat(el('crossfadeProb').value),
     crossfade_min: parseFloat(el('crossfadeMin').value),
@@ -599,13 +970,26 @@ async function saveSeed() {
   el('tlSeed').textContent = `seed: ${seed}`;
 }
 
+async function saveProjectName() {
+  if (!projectId) return;
+  const name = (el('projectName').value || '').trim() || 'Untitled Project';
+  try {
+    await api('PUT', `/api/projects/${projectId}/name`, {name});
+    el('projectName').value = name;
+  } catch (e) {
+    toast('\u274c Failed to update project name: ' + (e.detail || e.message), 'error');
+  }
+}
+
 function randomizeSeed() {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   el('seedInput').value = Array.from({length:12}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
   saveSeed();
 }
 
+// ─────────────────────────────────────────────
 // Feasibility
+// ─────────────────────────────────────────────
 async function checkFeasibility() {
   if (!projectId) return;
   try {
@@ -615,22 +999,24 @@ async function checkFeasibility() {
       box.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:2px 0">Import clips to begin</div>';
       el('generateBtn').disabled = true;
     } else if (r.feasible && !r.warnings.length) {
-      box.innerHTML = '<div class="feasibility-box feasibility-ok">Ready to generate</div>';
+      box.innerHTML = '<div class="feasibility-box feasibility-ok">\u2705 Ready to generate</div>';
       el('generateBtn').disabled = false;
     } else if (r.feasible) {
-      box.innerHTML = `<div class="feasibility-box feasibility-warn">Ready (with warnings)<ul>${r.warnings.map(w=>`<li>${w}</li>`).join('')}</ul></div>`;
+      box.innerHTML = `<div class="feasibility-box feasibility-warn">\u26a0\ufe0f Ready (warnings)<ul>${r.warnings.map(w=>`<li>${w}</li>`).join('')}</ul></div>`;
       el('generateBtn').disabled = false;
     } else {
-      box.innerHTML = `<div class="feasibility-box feasibility-err">Cannot generate<ul>${r.errors.map(e=>`<li>${e}</li>`).join('')}</ul></div>`;
+      box.innerHTML = `<div class="feasibility-box feasibility-err">\u274c Cannot generate<ul>${r.errors.map(e=>`<li>${e}</li>`).join('')}</ul></div>`;
       el('generateBtn').disabled = true;
     }
   } catch(e) { /* silent */ }
 }
 
+// ─────────────────────────────────────────────
 // Generate
+// ─────────────────────────────────────────────
 async function doGenerate() {
   const btn = el('generateBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Generating...';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Generating\u2026';
   try {
     await saveParams();
     await saveSeed();
@@ -638,14 +1024,14 @@ async function doGenerate() {
     const p = await api('GET', `/api/projects/${projectId}`);
     renderTimeline(p);
     el('renderBtn').disabled = false;
-    toast(`Generated: ${res.clip_count} clips - ${fmtSec(res.total_duration_seconds)}`, 'success');
-    if (res.warnings?.length) res.warnings.forEach(w => toast('Warning: ' + w, 'warn'));
+    toast(`\u26a1 Generated: ${res.clip_count} clips \u00b7 ${fmtSec(res.total_duration_seconds)}`, 'success');
+    if (res.warnings?.length) res.warnings.forEach(w => toast('\u26a0\ufe0f ' + w, 'warn'));
   } catch(e) {
     const d = e.detail;
-    if (d?.errors) toast('Error: ' + d.errors[0], 'error');
-    else toast('Generate failed: ' + (d || e.message), 'error');
+    if (d?.errors) toast('\u274c ' + d.errors[0], 'error');
+    else toast('\u274c Generate failed: ' + (d || e.message), 'error');
   }
-  btn.innerHTML = 'Generate'; btn.disabled = false;
+  btn.innerHTML = '\u26a1 Generate'; btn.disabled = false;
 }
 
 function renderTimeline(project) {
@@ -654,12 +1040,12 @@ function renderTimeline(project) {
   const assetMap = {};
   (project.assets || []).forEach(a => assetMap[a.id] = a);
 
-  el('tlTitle').textContent = `Timeline - ${fmtSec(tl.total_duration_seconds)}`;
-  el('tlMeta').textContent = `${tl.events.filter(e=>e.type==='clip').length} clips / ${tl.events.filter(e=>e.type==='silence').length} silences`;
+  el('tlTitle').textContent = `Timeline \u2014 ${fmtSec(tl.total_duration_seconds)}`;
+  el('tlMeta').textContent = `${tl.events.filter(e=>e.type==='clip').length} clips \u00b7 ${tl.events.filter(e=>e.type==='silence').length} silences`;
   el('tlSeed').textContent = `seed: ${project.seed}`;
 
   if (!tl.events.length) {
-    el('timelineEvents').innerHTML = '<div class="tl-empty"><div class="big">?</div><p>No events generated</p></div>';
+    el('timelineEvents').innerHTML = '<div class="tl-empty"><div class="big">\ud83e\udd37</div><p>No events generated</p></div>';
     return;
   }
 
@@ -667,50 +1053,78 @@ function renderTimeline(project) {
     if (ev.type === 'silence') {
       return `<div class="tl-event silence">
         <span class="tl-event-pos">${fmtSec(ev.position_seconds)}</span>
-        <div class="tl-event-bar"><div class="tl-event-fill" style="background:var(--border);color:var(--text-dim)">--- silence ${fmtSec(ev.duration_seconds)} ---</div></div>
+        <div class="tl-event-bar"><div class="tl-event-fill" style="background:var(--border);color:var(--text-dim)">\u2014 silence ${fmtSec(ev.duration_seconds)}</div></div>
         <span class="tl-event-meta"></span>
       </div>`;
     }
     const a = assetMap[ev.asset_id] || {};
     const color = clipColors[ev.asset_id] || '#888';
     const dur = ev.source_end_seconds - ev.source_start_seconds;
+    const clipName = (a.name || ev.asset_id);
+    const displayName = clipName.length > 48 ? clipName.slice(0, 45) + '\u2026' : clipName;
     const meta = [
-      fmtSec(dur),
+      `len ${fmtSec(dur)}`,
+      ev.fade_in_seconds > 0 ? `in ${ev.fade_in_seconds.toFixed(1)}s` : '',
+      ev.fade_out_seconds > 0 ? `out ${ev.fade_out_seconds.toFixed(1)}s` : '',
       ev.gain_db !== 0 ? `${ev.gain_db > 0 ? '+' : ''}${ev.gain_db.toFixed(1)}dB` : '',
-      ev.fade_in_seconds > 0 ? `in:${ev.fade_in_seconds.toFixed(1)}s` : '',
-      ev.fade_out_seconds > 0 ? `out:${ev.fade_out_seconds.toFixed(1)}s` : '',
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean).join(' \u00b7 ');
     return `<div class="tl-event">
       <span class="tl-event-pos">${fmtSec(ev.position_seconds)}</span>
-      <div class="tl-event-bar"><div class="tl-event-fill" style="background:${color}">${a.name || ev.asset_id}</div></div>
+      <div class="tl-event-bar"><div class="tl-event-fill" style="background:${color}" title="${clipName}">${displayName}</div></div>
       <span class="tl-event-meta">${meta}</span>
     </div>`;
   }).join('');
 }
 
+// ─────────────────────────────────────────────
 // Render
+// ─────────────────────────────────────────────
 async function doRender() {
   const btn = el('renderBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Rendering...';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Rendering\u2026';
   try {
     const res = await api('POST', `/api/projects/${projectId}/render`);
     loadAudio(`/api/projects/${projectId}/audio`, res.duration_seconds, res.size_mb);
-    toast(`Rendered! ${fmtSec(res.duration_seconds)} / ${res.size_mb} MB`, 'success');
+    toast(`\ud83c\udfa7 Rendered! ${fmtSec(res.duration_seconds)} \u00b7 ${res.size_mb} MB`, 'success');
   } catch(e) {
-    toast('Render failed: ' + (e.detail || e.message), 'error');
+    toast('\u274c Render failed: ' + (e.detail || e.message), 'error');
   }
-  btn.innerHTML = 'Render'; btn.disabled = false;
+  btn.innerHTML = '\ud83c\udfa7 Render'; btn.disabled = false;
 }
 
+// ─────────────────────────────────────────────
 // Audio player
+// ─────────────────────────────────────────────
 function setupPlayer() {
   const audio = el('audioPlayer');
+  const progress = el('playerProgress');
+  let scrubbing = false;
+
   audio.addEventListener('timeupdate', () => {
     const pct = audio.duration ? (audio.currentTime / audio.duration * 100) : 0;
     el('progressFill').style.width = pct + '%';
     el('playerTime').textContent = `${fmtTime(audio.currentTime)} / ${fmtTime(audio.duration||0)}`;
   });
-  audio.addEventListener('ended', () => { el('playBtn').textContent = String.fromCharCode(9654); });
+  audio.addEventListener('ended', () => { el('playBtn').textContent = '\u25b6'; });
+
+  function doSeek(clientX) {
+    if (!audio.duration) return;
+    const rect = progress.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * audio.duration;
+  }
+
+  progress.addEventListener('mousedown', e => {
+    e.preventDefault();
+    scrubbing = true;
+    doSeek(e.clientX);
+  });
+  window.addEventListener('mousemove', e => {
+    if (scrubbing) doSeek(e.clientX);
+  });
+  window.addEventListener('mouseup', () => {
+    scrubbing = false;
+  });
 }
 
 function loadAudio(url, duration, sizeMb) {
@@ -718,27 +1132,60 @@ function loadAudio(url, duration, sizeMb) {
   audio.src = url + '?t=' + Date.now();
   audio.load();
   el('playBtn').disabled = false;
-  el('playerTitle').textContent = 'CNC Audio Render';
-  el('playerSub').textContent = `${fmtSec(duration)} / ${sizeMb} MB WAV / 44100 Hz stereo`;
+  el('playerTitle').textContent = '\ud83c\udfb5 CNC Audio Render';
+  el('playerSub').textContent = `${fmtSec(duration)} \u00b7 ${sizeMb} MB WAV \u00b7 44100 Hz stereo`;
   const dl = el('downloadBtn');
-  dl.href = url; dl.style.display = '';
+  dl.href = `${url.replace('/audio', '/download')}?t=${Date.now()}`;
+  dl.style.display = '';
 }
 
 function togglePlay() {
   const audio = el('audioPlayer');
-  if (audio.paused) { audio.play(); el('playBtn').innerHTML = '&#9646;&#9646;'; }
-  else { audio.pause(); el('playBtn').innerHTML = '&#9654;'; }
+  if (audio.paused) { audio.play(); el('playBtn').textContent = '\u23f8'; }
+  else { audio.pause(); el('playBtn').textContent = '\u25b6'; }
 }
 
-function seekAudio(e) {
+function seekAudio(e, explicitTarget) {
   const audio = el('audioPlayer');
   if (!audio.duration) return;
-  const rect = e.currentTarget.getBoundingClientRect();
-  audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
+  const target = explicitTarget || e.currentTarget;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  audio.currentTime = ratio * audio.duration;
 }
 
+// ─────────────────────────────────────────────
+// Tooltip
+// ─────────────────────────────────────────────
+function setupTooltip() {
+  const tip = el('floatTooltip');
+  if (!tip) return;
+  document.addEventListener('mouseover', e => {
+    const t = e.target.closest('[data-tip]');
+    if (t) { tip.textContent = t.dataset.tip; tip.style.display = 'block'; }
+  });
+  document.addEventListener('mousemove', e => {
+    if (tip.style.display === 'block') {
+      tip.style.left = Math.min(e.clientX + 14, window.innerWidth - 280) + 'px';
+      tip.style.top = Math.min(e.clientY + 16, window.innerHeight - 100) + 'px';
+    }
+  });
+  document.addEventListener('mouseout', e => {
+    const from = e.target.closest('[data-tip]');
+    const to = e.relatedTarget?.closest?.('[data-tip]');
+    if (from && !to) tip.style.display = 'none';
+  });
+}
+
+// ─────────────────────────────────────────────
 // Panel collapse
+// ─────────────────────────────────────────────
 function togglePanel(header) {
+  const body = header.closest('.panel').nextElementSibling?.classList?.contains('panel-body')
+    ? header.closest('.panel').nextElementSibling
+    : null;
+  // body is inside same .panel
   const innerBody = header.parentElement.querySelector('.panel-body') || header.closest('.panel').querySelector('.panel-body');
   if (!innerBody) return;
   const hidden = innerBody.classList.toggle('hidden');
