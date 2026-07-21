@@ -911,6 +911,21 @@ def generate(project_id: str):
         if sound_timeline is not None
         else 0
     )
+
+    warnings = list(feasibility["warnings"])
+    # Warn when the song timeline fell short of the target (source material ran out).
+    song_target = feasibility["song_params"].target_duration_seconds
+    song_actual = song_timeline.total_duration_seconds
+    shortfall = song_target - song_actual
+    min_clip = feasibility["song_params"].clip_duration.min_seconds
+    if shortfall > min_clip:
+        pct = round(shortfall / song_target * 100)
+        warnings.append(
+            f"Song timeline is {round(shortfall)}s shorter than the {round(song_target)}s target "
+            f"({pct}% unfilled). Source material may have run out. "
+            "Try disabling 'No Repeat Sections', enabling 'Allow Repeats', or adding more / longer songs."
+        )
+
     return {
         "total_duration_seconds": project.timeline.total_duration_seconds,
         "event_count": len(project.timeline.events),
@@ -918,7 +933,7 @@ def generate(project_id: str):
         "song_clip_count": song_clip_count,
         "sound_clip_count": sound_clip_count,
         "events": _dump_timeline_events_with_layers(project),
-        "warnings": feasibility["warnings"],
+        "warnings": warnings,
     }
 
 
