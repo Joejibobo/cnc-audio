@@ -33,11 +33,12 @@ Then open **http://localhost:8000** in your browser.
 ## How it Works
 
 1. **Import clips** -- drag & drop any audio (MP3, WAV, FLAC, AAC) or video (MP4, MOV, etc.) files. Audio is extracted and converted automatically.
-2. **Set parameters** -- adjust track length, clip duration range, selection mode, crossfades, silence gaps, gain, and more.
-3. **Set a seed** -- same seed + same clips + same params = same track every time. Change the seed for a different arrangement.
-4. **Generate** -- the engine checks feasibility first, then builds a timeline of clip events.
-5. **Render** -- mixes all clips with fades and crossfades into a stereo WAV.
-6. **Play & Download** -- preview in the browser or download the WAV file.
+2. **Set layer parameters** -- use separate **Songs** and **Sounds** tabs with independent clip ranges, repeats, selection mode, crossfades, silence gaps, and per-layer gain behavior.
+3. **Set render settings** -- control total length, song/sound layer gains, global render gain, and output normalization.
+4. **Set a seed** -- same seed + same clips + same params = same track every time. Change the seed for a different arrangement.
+5. **Generate** -- feasibility runs first, then a base song timeline is generated and a sound timeline is layered on top.
+6. **Render** -- mixes both layers with fades/crossfades into a stereo WAV.
+7. **Play & Download** -- preview in the browser or download the WAV file.
 
 ## Architecture
 
