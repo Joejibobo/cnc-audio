@@ -686,15 +686,48 @@
       <span class="player-time" id="playerTime">0:00 / 0:00</span>
       <div style="flex:1"></div>
       <a id="downloadBtn" style="display:none" class="btn btn-secondary btn-sm" download="cnc-audio.wav">⬇ WAV</a>
+      <button class="btn btn-secondary btn-sm" onclick="toggleDebugPanel()" title="Toggle seek debug log" style="font-family:monospace;font-size:11px">🐛 Debug</button>
     </div>
 
   </div><!-- /content -->
 </div>
 
-<div class="toast-container" id="toastContainer"></div>
-<div id="floatTooltip"></div>
+<!-- ── Debug overlay ─────────────────────────────────────────── -->
+<div id="debugPanel" style="display:none;position:fixed;bottom:0;right:0;width:480px;max-height:340px;background:#111;color:#0f0;font:12px/1.4 monospace;z-index:9999;border-top:2px solid #0f0;border-left:2px solid #0f0;display:flex;flex-direction:column">
+  <div style="display:flex;align-items:center;padding:4px 8px;background:#1a1a1a;border-bottom:1px solid #333;gap:8px">
+    <strong style="color:#0f0">🐛 Audio Debug</strong>
+    <span id="dbgStatus" style="color:#ff0;flex:1"></span>
+    <button onclick="document.getElementById('dbgLog').innerHTML=''" style="background:none;border:1px solid #555;color:#aaa;cursor:pointer;padding:1px 6px;font-size:11px">Clear</button>
+    <button onclick="toggleDebugPanel()" style="background:none;border:1px solid #555;color:#aaa;cursor:pointer;padding:1px 6px;font-size:11px">✕</button>
+  </div>
+  <div id="dbgLog" style="flex:1;overflow-y:auto;padding:6px 10px;white-space:pre"></div>
+</div>
 
 <script>
+// ─────────────────────────────────────────────
+// Debug panel
+// ─────────────────────────────────────────────
+let _dbgEnabled = false;
+function toggleDebugPanel() {
+  const p = document.getElementById('debugPanel');
+  if (!p) return;
+  _dbgEnabled = !_dbgEnabled;
+  p.style.display = _dbgEnabled ? 'flex' : 'none';
+}
+function dbg(label, extra) {
+  if (!_dbgEnabled) return;
+  const audio = document.getElementById('audioPlayer');
+  const ct = audio ? audio.currentTime.toFixed(3) : '?';
+  const dur = audio ? (audio.duration || 0).toFixed(1) : '?';
+  const seeking = audio ? audio.seeking : '?';
+  const paused = audio ? audio.paused : '?';
+  const line = `[${new Date().toISOString().slice(11,23)}] ${label.padEnd(16)} ct=${ct} dur=${dur} seeking=${seeking} paused=${paused}  psr=${String(pendingSeekRatio).slice(0,6)}  ust=${String(userSeekTime).slice(0,6)}${extra ? '  '+extra : ''}`;
+  const log = document.getElementById('dbgLog');
+  if (log) { log.textContent += line + '\n'; log.scrollTop = log.scrollHeight; }
+  const status = document.getElementById('dbgStatus');
+  if (status) status.textContent = label;
+}
+
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
@@ -1891,9 +1924,11 @@ function updatePlayhead() {
   if (pendingSeekRatio !== null) {
     const expected = pendingSeekRatio * dur;
     if (Math.abs(t - expected) < 1.0) {
+      dbg('timeupdate CLEAR', `t=${t.toFixed(3)} expected=${expected.toFixed(3)}`);
       pendingSeekRatio = null; // audio has caught up — normal updates resume
     } else {
       // Still waiting for browser to confirm the seek position
+      dbg('timeupdate GUARD', `t=${t.toFixed(3)} expected=${expected.toFixed(3)}`);
       el('playerTime').textContent = `${fmtTimeFull(expected)} / ${fmtTimeFull(dur)}`;
       updateDawPlayhead(pendingSeekRatio);
       return;
@@ -1911,8 +1946,11 @@ function setupPlayer() {
   // seeked: just refresh display; do NOT clear pendingSeekRatio here.
   // Chrome fires seeked before its spurious timeupdate(0) on play — if we
   // cleared here we'd have no guard left when that timeupdate arrives.
-  audio.addEventListener('seeked', updatePlayhead);
-  audio.addEventListener('ended', () => { el('playBtn').textContent = '\u25b6'; });
+  audio.addEventListener('seeked', () => { dbg('seeked'); updatePlayhead(); });
+  audio.addEventListener('play',   () => dbg('play'));
+  audio.addEventListener('playing',() => dbg('playing'));
+  audio.addEventListener('pause',  () => dbg('pause'));
+  audio.addEventListener('ended',  () => { dbg('ended'); el('playBtn').textContent = '\u25b6'; });
 
   function doSeek(clientX) {
     const ruler = el('dawRuler');
@@ -1926,6 +1964,7 @@ function setupPlayer() {
     if (isFinite(dur) && dur > 0) {
       const seekTo = ratio * dur;
       userSeekTime = seekTo; // persists until consumed by togglePlay
+      dbg('doSeek', `ratio=${ratio.toFixed(3)} seekTo=${seekTo.toFixed(3)}`);
       el('playerTime').textContent = `${fmtTimeFull(seekTo)} / ${fmtTimeFull(dur)}`;
       audio.currentTime = seekTo;
     }
@@ -1969,8 +2008,11 @@ function togglePlay() {
     // play() is called, which causes Chrome to reset currentTime to 0.
     if (userSeekTime !== null && isFinite(audio.duration) && audio.duration > 0) {
       pendingSeekRatio = userSeekTime / audio.duration;
+      dbg('togglePlay SEEK', `userSeekTime=${userSeekTime.toFixed(3)} psr=${pendingSeekRatio.toFixed(3)}`);
       userSeekTime = null;
       // audio.currentTime is already correct — just let play() start from there
+    } else {
+      dbg('togglePlay NORM');
     }
     audio.play();
     el('playBtn').textContent = '\u23f8';
