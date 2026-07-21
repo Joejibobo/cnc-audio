@@ -239,8 +239,9 @@
     border: none;
     display: flex; align-items: center;
     padding: 0 8px; color: #080808; font-weight: 700; font-size: 11px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; overflow: hidden;
   }
+  .h-clip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .h-clip-meta { margin-left: auto; font-size: 10px; color: rgba(0,0,0,0.5); padding-left: 8px; flex-shrink: 0; }
   .h-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 12px; opacity: 0.5; }
   .h-fade-overlay { position: absolute; top: 9px; height: 40px; pointer-events: none; border-radius: 5px; z-index: 2; }
@@ -1909,7 +1910,6 @@ function renderTimeline(project) {
       const leftPct   = pct(ev.position_seconds);
       const widthPct  = Math.max(0.2, pct(audioDur));
       const clipName  = clipNameForEvent(ev);
-      const displayName = clipName.length > 38 ? clipName.slice(0, 35) + '\u2026' : clipName;
       const color     = clipColors[ev.asset_id] || '#888888';
       const gainText  = ev.gain_db ? `${ev.gain_db > 0 ? '+' : ''}${ev.gain_db.toFixed(1)}dB` : '';
       const title     = `${clipName} | start ${fmtSec(ev.position_seconds)} | len ${fmtSec(audioDur)}${gainText ? ` | ${gainText}` : ''}`;
@@ -1977,7 +1977,7 @@ function renderTimeline(project) {
         : widthPct;
 
       return `<div class="h-clip" style="left:${leftPct}%;width:${renderedWidthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius}" title="${title}">
-          <span>${displayName}</span><span class="h-clip-meta">${fmtSec(audioDur)}</span>
+          <span class="h-clip-name">${clipName}</span>
         </div>`;
     }).join('');
 
