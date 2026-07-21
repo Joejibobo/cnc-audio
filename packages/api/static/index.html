@@ -196,7 +196,7 @@
   .daw-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
   .daw-info-bar { padding: 7px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-dim); flex-shrink: 0; background: var(--surface); }
   .daw-info-bar strong { color: var(--text); font-size: 13px; }
-  .daw-container { flex: 1; overflow: auto; position: relative; }
+  .daw-container { flex: 1; overflow: auto; position: relative; user-select: none; cursor: crosshair; }
   .daw-row { display: flex; min-width: 0; }
   .daw-label {
     width: 72px; min-width: 72px; flex-shrink: 0;
@@ -1845,8 +1845,7 @@ function updateDawPlayhead(ratio) {
   const container = el('dawContainer');
   if (!ph || !container || container.style.display === 'none') return;
   const labelW = 72;
-  const totalW = container.clientWidth;
-  const trackW = Math.max(1, totalW - labelW);
+  const trackW = Math.max(1, container.clientWidth - labelW);
   ph.style.left = (labelW + ratio * trackW) + 'px';
 }
 
@@ -1865,28 +1864,36 @@ function setupPlayer() {
   audio.addEventListener('timeupdate', updatePlayhead);
   audio.addEventListener('ended', () => { el('playBtn').textContent = '\u25b6'; });
 
-  // Seek using the ruler's horizontal bounding rect as reference.
-  // Works whether the user clicks on the ruler row or any track row.
+  // Seek calculation: measure the container's left edge + label offset.
+  // Must match updateDawPlayhead which uses container.clientWidth.
   function doSeek(clientX) {
     if (!audio.duration) return;
-    const ruler = el('dawRuler');
-    if (!ruler) return;
-    const rect = ruler.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const container = el('dawContainer');
+    if (!container || container.style.display === 'none') return;
+    const rect = container.getBoundingClientRect();
+    const labelW = 72;
+    const trackX = clientX - rect.left - labelW;
+    const trackW = Math.max(1, container.clientWidth - labelW);
+    const ratio = Math.max(0, Math.min(1, trackX / trackW));
     audio.currentTime = ratio * audio.duration;
     updatePlayhead();
   }
 
-  // Attach to the entire daw-container so any row click seeks
-  const container = el('dawContainer');
-  if (container) {
-    container.addEventListener('mousedown', e => {
-      // Only seek on direct row clicks, not on clip label clicks
-      e.preventDefault();
-      scrubbing = true;
-      doSeek(e.clientX);
-    });
-  }
+  // Attach seek to the whole daw-container so any row click or drag works.
+  // Use event delegation via window for mousemove/mouseup so scrubbing
+  // continues even if the pointer leaves the container.
+  document.addEventListener('mousedown', e => {
+    const container = el('dawContainer');
+    if (!container) return;
+    if (!container.contains(e.target)) return;
+    const rect = container.getBoundingClientRect();
+    const labelW = 72;
+    // Ignore clicks on the label column
+    if (e.clientX - rect.left < labelW) return;
+    e.preventDefault();
+    scrubbing = true;
+    doSeek(e.clientX);
+  });
   window.addEventListener('mousemove', e => { if (scrubbing) doSeek(e.clientX); });
   window.addEventListener('mouseup', () => { scrubbing = false; });
 }
