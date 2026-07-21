@@ -196,7 +196,7 @@
   .daw-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
   .daw-info-bar { padding: 7px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-dim); flex-shrink: 0; background: var(--surface); }
   .daw-info-bar strong { color: var(--text); font-size: 13px; }
-  .daw-container { flex: 1; overflow: auto; position: relative; user-select: none; cursor: crosshair; }
+  .daw-container { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; user-select: none; cursor: crosshair; }
   .daw-row { display: flex; min-width: 0; }
   .daw-label {
     width: 72px; min-width: 72px; flex-shrink: 0;
@@ -656,7 +656,8 @@
         <span style="flex:1"></span>
         <span id="tlSeed" style="font-family:monospace;font-size:11px"></span>
         <div style="display:flex;align-items:center;gap:6px;margin-left:16px">
-          <button class="btn btn-secondary btn-sm" onclick="dawZoomOut()" title="Zoom out" style="padding:2px 8px;font-size:14px;line-height:1">−</button>
+          <button id="dawZoomOutBtn" class="btn btn-secondary btn-sm" onclick="dawZoomOut()" title="Zoom out" style="padding:2px 8px;font-size:14px;line-height:1" disabled>−</button>
+          <button class="btn btn-secondary btn-sm" onclick="dawZoomReset()" title="Reset zoom to 1×" style="padding:2px 7px;font-size:11px;line-height:1">1×</button>
           <span id="dawZoomLabel" style="font-family:monospace;font-size:11px;min-width:28px;text-align:center">1×</span>
           <button class="btn btn-secondary btn-sm" onclick="dawZoomIn()" title="Zoom in" style="padding:2px 8px;font-size:14px;line-height:1">+</button>
         </div>
@@ -1990,6 +1991,7 @@ function renderTimeline(project) {
   el('dawContainer').style.display = '';
   el('timelineEmpty').style.display = 'none';
   el('dawPlayhead').style.left = '72px';
+  el('dawContainer').scrollLeft = 0;
   dawZoom = 1; applyDawZoom();
 }
 // Render
@@ -1998,13 +2000,22 @@ function renderTimeline(project) {
 // Timeline zoom
 // ─────────────────────────────────────────────
 let dawZoom = 1;
-const DAW_ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
+const DAW_ZOOM_STEPS = [1, 1.5, 2, 3, 4, 6, 8];
 
 function applyDawZoom() {
   const inner = el('dawScrollInner');
-  if (inner) inner.style.minWidth = (dawZoom * 100) + '%';
+  if (inner) {
+    // At 1× minWidth:100% fills the container (no scroll).
+    // At >1× we also set an explicit width so the inner actually expands
+    // past 100% and the container scrolls.
+    inner.style.minWidth = '100%';
+    inner.style.width    = dawZoom > 1 ? (dawZoom * 100) + '%' : '';
+  }
   const lbl = el('dawZoomLabel');
   if (lbl) lbl.textContent = `${dawZoom}×`;
+  // Grey-out the − button at minimum zoom
+  const zoomOutBtn = el('dawZoomOutBtn');
+  if (zoomOutBtn) zoomOutBtn.disabled = dawZoom <= DAW_ZOOM_STEPS[0];
 }
 
 function dawZoomIn() {
@@ -2015,6 +2026,13 @@ function dawZoomIn() {
 function dawZoomOut() {
   const idx = DAW_ZOOM_STEPS.indexOf(dawZoom);
   if (idx > 0) { dawZoom = DAW_ZOOM_STEPS[idx - 1]; applyDawZoom(); }
+}
+
+function dawZoomReset() {
+  dawZoom = 1;
+  const container = el('dawContainer');
+  if (container) container.scrollLeft = 0;
+  applyDawZoom();
 }
 
 // ─────────────────────────────────────────────
@@ -2063,13 +2081,24 @@ function updateDawPlayhead(ratio) {
   if (!ph || !ruler) return;
   const container = el('dawContainer');
   if (!container || container.style.display === 'none') return;
-  // ruler.offsetLeft = label width (72px); ruler.offsetWidth = track width.
-  // Both are layout values relative to the container (position:relative), so
-  // they are consistent with the getBoundingClientRect() seek calculation.
   const trackLeft = ruler.offsetLeft;
   const trackWidth = ruler.offsetWidth;
   if (!trackWidth) return;
-  ph.style.left = (trackLeft + ratio * trackWidth) + 'px';
+  const playheadPx = trackLeft + ratio * trackWidth;
+  ph.style.left = playheadPx + 'px';
+
+  // Auto-scroll so the playhead stays visible when zoomed in (and not scrubbing)
+  if (dawZoom > 1 && !isScrubbing) {
+    const visWidth   = container.clientWidth;
+    const scrollLeft = container.scrollLeft;
+    const relPos     = playheadPx - scrollLeft;   // playhead x within viewport
+    const margin     = visWidth * 0.15;            // 15% edge buffer
+    if (relPos < margin) {
+      container.scrollLeft = Math.max(0, playheadPx - margin);
+    } else if (relPos > visWidth - margin) {
+      container.scrollLeft = playheadPx - (visWidth - margin);
+    }
+  }
 }
 
 function updatePlayhead() {
