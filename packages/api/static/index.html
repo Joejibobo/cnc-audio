@@ -1877,31 +1877,41 @@ function updateDawPlayhead(ratio) {
 }
 
 function updatePlayhead() {
-  if (isScrubbing) return; // Don't let audio events overwrite a manual scrub
+  if (isScrubbing) return;
   const audio = el('audioPlayer');
   if (!audio) return;
-  // Use pendingSeekRatio until the browser confirms the seek via 'seeked'.
-  // Browsers often fire timeupdate(0) immediately after audio.play() when a
-  // seek was set while paused, before the playback position has been applied.
+  const dur = audio.duration || 0;
+  const t = audio.currentTime;
+
+  // pendingSeekRatio is set on every manual seek and cleared here only once
+  // audio.currentTime is actually close to the seek target.  We do NOT clear
+  // it in the 'seeked' handler because Chrome fires seeked BEFORE its own
+  // spurious timeupdate(0) that follows audio.play() — clearing on seeked
+  // leaves the guard down exactly when we need it.
   if (pendingSeekRatio !== null) {
-    const dur = audio.duration || 0;
-    updateDawPlayhead(pendingSeekRatio);
-    el('playerTime').textContent = `${fmtTimeFull(pendingSeekRatio * dur)} / ${fmtTimeFull(dur)}`;
-    return;
+    const expected = pendingSeekRatio * dur;
+    if (Math.abs(t - expected) < 1.0) {
+      pendingSeekRatio = null; // audio has caught up — normal updates resume
+    } else {
+      // Still waiting for browser to confirm the seek position
+      el('playerTime').textContent = `${fmtTimeFull(expected)} / ${fmtTimeFull(dur)}`;
+      updateDawPlayhead(pendingSeekRatio);
+      return;
+    }
   }
-  const ratio = audio.duration ? (audio.currentTime / audio.duration) : 0;
-  el('playerTime').textContent = `${fmtTimeFull(audio.currentTime)} / ${fmtTimeFull(audio.duration || 0)}`;
-  updateDawPlayhead(ratio);
+
+  el('playerTime').textContent = `${fmtTimeFull(t)} / ${fmtTimeFull(dur)}`;
+  updateDawPlayhead(dur ? t / dur : 0);
 }
 
 function setupPlayer() {
   const audio = el('audioPlayer');
 
   audio.addEventListener('timeupdate', updatePlayhead);
-  audio.addEventListener('seeked', () => {
-    pendingSeekRatio = null; // browser confirmed seek complete — safe to read currentTime
-    updatePlayhead();
-  });
+  // seeked: just refresh display; do NOT clear pendingSeekRatio here.
+  // Chrome fires seeked before its spurious timeupdate(0) on play — if we
+  // cleared here we'd have no guard left when that timeupdate arrives.
+  audio.addEventListener('seeked', updatePlayhead);
   audio.addEventListener('ended', () => { el('playBtn').textContent = '\u25b6'; });
 
   function doSeek(clientX) {
@@ -1910,7 +1920,7 @@ function setupPlayer() {
     const rect = ruler.getBoundingClientRect();
     if (!rect.width) return;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    pendingSeekRatio = ratio; // visual guard: holds position until 'seeked' confirms it
+    pendingSeekRatio = ratio; // visual guard: holds position until timeupdate confirms
     updateDawPlayhead(ratio);
     const dur = audio.duration;
     if (isFinite(dur) && dur > 0) {
