@@ -239,10 +239,9 @@
     border: none;
     display: flex; align-items: center;
     padding: 0 8px; color: #080808; font-weight: 700; font-size: 11px;
-    white-space: nowrap; overflow: hidden;
+    overflow: hidden;
   }
-  .h-clip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .h-clip-meta { margin-left: auto; font-size: 10px; color: rgba(0,0,0,0.5); padding-left: 8px; flex-shrink: 0; }
+  .h-clip-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .h-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 12px; opacity: 0.5; }
   .h-fade-overlay { position: absolute; top: 9px; height: 40px; pointer-events: none; border-radius: 5px; z-index: 2; }
 
