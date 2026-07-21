@@ -735,7 +735,8 @@ let lastLibraryLayer = 'songs';
 let hasGeneratedTimeline = false;
 let contentView = 'settings';
 let currentAssetsByLayer = { songs: [], sounds: [] };
-let isScrubbing = false; // true while user is dragging the playhead
+let isScrubbing = false;     // true while user is dragging the playhead
+let pendingSeekRatio = null; // set in doSeek, cleared on 'seeked' — guards against timeupdate(0) after play()
 const COLORS = ['#00d4b4','#0099ff','#f5a623','#b44fff','#ff6b6b','#44d62c','#ff9f43','#54a0ff'];
 const clipColors = {};
 let colorIdx = 0;
@@ -1125,24 +1126,31 @@ function applyLayerSettings(s) {
 }
 
 function applyRenderSettings(s) {
+  // Local helper: sets slider value AND dispatches 'input' so that the manual
+  // number input (created by attachManualInputToSlider) stays in sync.
+  function setSlider(id, val, displayId, fmt) {
+    const sl = el(id); if (!sl) return;
+    sl.value = val;
+    if (displayId) {
+      const v = fmt ? fmt(val) : val;
+      const d = el(displayId); if (d) d.textContent = v;
+    }
+    sl.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   el('targetDuration').value = s.targetDuration;
   el('durationDisplay').textContent = fmtSec(+s.targetDuration);
   syncDurationHMS(+s.targetDuration);
 
-  el('songLayerGain').value = s.songLayerGain;
-  el('songGainD').textContent = `${+s.songLayerGain >= 0 ? '+' : ''}${Number(s.songLayerGain).toFixed(1)} dB`;
-  el('soundLayerGain').value = s.soundLayerGain;
-  el('soundGainD').textContent = `${+s.soundLayerGain >= 0 ? '+' : ''}${Number(s.soundLayerGain).toFixed(1)} dB`;
-  el('renderGain').value = s.renderGain;
-  el('renderGainD').textContent = `${+s.renderGain >= 0 ? '+' : ''}${Number(s.renderGain).toFixed(1)} dB`;
+  setSlider('songLayerGain',  s.songLayerGain,  'songGainD',   v => `${+v >= 0 ? '+' : ''}${Number(v).toFixed(1)} dB`);
+  setSlider('soundLayerGain', s.soundLayerGain, 'soundGainD',  v => `${+v >= 0 ? '+' : ''}${Number(v).toFixed(1)} dB`);
+  setSlider('renderGain',     s.renderGain,     'renderGainD', v => `${+v >= 0 ? '+' : ''}${Number(v).toFixed(1)} dB`);
   el('normalizeOutput').checked = !!s.normalizeOutput;
 
   const fadeEnabled = !!s.masterFadeEnabled;
   el('masterFadeEnabled').checked = fadeEnabled;
-  el('masterFadeIn').value = s.masterFadeIn ?? '0';
-  el('masterFadeInD').textContent = (s.masterFadeIn ?? 0) + 's';
-  el('masterFadeOut').value = s.masterFadeOut ?? '0';
-  el('masterFadeOutD').textContent = (s.masterFadeOut ?? 0) + 's';
+  setSlider('masterFadeIn',  s.masterFadeIn  ?? '0', 'masterFadeInD',  v => v + 's');
+  setSlider('masterFadeOut', s.masterFadeOut ?? '0', 'masterFadeOutD', v => v + 's');
   _applyMasterFadeState(fadeEnabled);
 }
 
@@ -1365,9 +1373,13 @@ async function uploadFiles(files) {
 }
 
 async function deleteAsset(assetId) {
-  await api('DELETE', `/api/projects/${projectId}/assets/${assetId}`);
-  await refreshProject();
-  await checkFeasibility();
+  try {
+    await api('DELETE', `/api/projects/${projectId}/assets/${assetId}`);
+    await refreshProject();
+    await checkFeasibility();
+  } catch(err) {
+    toast(`\u274c Could not remove clip: ${err.message || err}`, 'error');
+  }
 }
 
 function mapApiParamsToLayerSettings(p) {
@@ -1754,12 +1766,12 @@ function renderTimeline(project) {
       const currEnd = curr.position_seconds + currDur;
       if (next.position_seconds < currEnd) {
         const xDur = Math.max(0.001, currEnd - next.position_seconds);
-        // Overlay spans the actual audio crossfade region [next.position_seconds, currEnd].
-        // Extend xDur/2 to the left to visually straddle the clip boundary.
+        // Center the overlay exactly on next.position_seconds (the visual clip boundary),
+        // extending xDur/2 into the outgoing clip and xDur/2 into the incoming clip.
+        // This mirrors the symmetric crossfade the generator produces.
         const overlayStartSec = next.position_seconds - xDur / 2;
-        const overlayWidthSec = xDur * 1.5;
-        const blended = blendColor(clipColors[curr.asset_id], clipColors[next.asset_id], 0.6);
-        overlays.push(`<div class="h-fade-overlay" style="left:${pct(Math.max(0, overlayStartSec))}%;width:${Math.max(0.5, pct(overlayWidthSec))}%;background:${blended}" title="Crossfade ${fmtSec(xDur)}"></div>`);
+        const blended = blendColor(clipColors[curr.asset_id], clipColors[next.asset_id], 0.45);
+        overlays.push(`<div class="h-fade-overlay" style="left:${pct(Math.max(0, overlayStartSec))}%;width:${Math.max(0.5, pct(xDur))}%;background:${blended}" title="Crossfade ${fmtSec(xDur)}"></div>`);
         coveredIn.add(i + 1);
         coveredOut.add(i);
       }
@@ -1867,6 +1879,15 @@ function updatePlayhead() {
   if (isScrubbing) return; // Don't let audio events overwrite a manual scrub
   const audio = el('audioPlayer');
   if (!audio) return;
+  // Use pendingSeekRatio until the browser confirms the seek via 'seeked'.
+  // Browsers often fire timeupdate(0) immediately after audio.play() when a
+  // seek was set while paused, before the playback position has been applied.
+  if (pendingSeekRatio !== null) {
+    const dur = audio.duration || 0;
+    updateDawPlayhead(pendingSeekRatio);
+    el('playerTime').textContent = `${fmtTimeFull(pendingSeekRatio * dur)} / ${fmtTimeFull(dur)}`;
+    return;
+  }
   const ratio = audio.duration ? (audio.currentTime / audio.duration) : 0;
   el('playerTime').textContent = `${fmtTimeFull(audio.currentTime)} / ${fmtTimeFull(audio.duration || 0)}`;
   updateDawPlayhead(ratio);
@@ -1876,7 +1897,10 @@ function setupPlayer() {
   const audio = el('audioPlayer');
 
   audio.addEventListener('timeupdate', updatePlayhead);
-  audio.addEventListener('seeked', updatePlayhead);
+  audio.addEventListener('seeked', () => {
+    pendingSeekRatio = null; // browser confirmed seek complete — safe to read currentTime
+    updatePlayhead();
+  });
   audio.addEventListener('ended', () => { el('playBtn').textContent = '\u25b6'; });
 
   function doSeek(clientX) {
@@ -1885,6 +1909,7 @@ function setupPlayer() {
     const rect = ruler.getBoundingClientRect();
     if (!rect.width) return;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    pendingSeekRatio = ratio; // protect against timeupdate(0) until seeked fires
     updateDawPlayhead(ratio);
     const dur = audio.duration;
     if (isFinite(dur) && dur > 0) {

@@ -380,7 +380,11 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
             break
         source_start, source_end = region
 
-        # Crossfade with the previous clip
+        # Crossfade with the previous clip — symmetric model:
+        # Extend clip A's source by xfade/2 (if available), then place clip B
+        # xfade seconds before clip A's NEW audio end.  Result: the fade overlap
+        # region [prev_new_end - xfade, prev_new_end] is centered on the visual
+        # clip boundary (clip B's position_seconds).
         fade_in = 0.0
         if (
             last_clip_event is not None
@@ -396,9 +400,39 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
             xfade_min = min(params.crossfade.min_seconds, xfade_limit)
             if xfade_min <= xfade_limit and xfade_limit > 0:
                 xfade = rng.uniform(xfade_min, xfade_limit)
+                half = xfade / 2.0
+
+                # Try to extend clip A's source by xfade/2 so the fade starts
+                # inside clip A's audio (symmetric crossfade).
+                prev_asset = assets_by_id.get(last_clip_event.asset_id)
+                if prev_asset:
+                    old_se = last_clip_event.source_end_seconds
+                    # How much contiguous source is available right after old_se?
+                    if params.repetition.no_repeat_sections:
+                        windows = _available_windows(
+                            prev_asset.duration_seconds,
+                            used_ranges_by_asset.get(prev_asset.id, []),
+                        )
+                        avail = 0.0
+                        for ws, we in windows:
+                            if ws <= old_se and we > old_se:
+                                avail = we - old_se
+                                break
+                    else:
+                        avail = max(0.0, prev_asset.duration_seconds - old_se)
+
+                    extension = min(half, avail)
+                    if extension > 0.001:
+                        new_se = round(old_se + extension, 4)
+                        last_clip_event.source_end_seconds = new_se
+                        _register_used_range(
+                            used_ranges_by_asset, last_clip_event.asset_id, old_se, new_se
+                        )
+                        position += extension  # clip A's audio end moved forward
+
                 last_clip_event.fade_out_seconds = round(xfade, 4)
                 fade_in = xfade
-                position -= xfade
+                position -= xfade  # place clip B xfade before clip A's (extended) end
 
         gain_db = _clip_gain_db(clip, params, rng)
 
