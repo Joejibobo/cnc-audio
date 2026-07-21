@@ -1624,6 +1624,11 @@ async function refreshProject() {
   }
   const settingsLayer = activeLayer === 'render' ? lastLibraryLayer : activeLayer;
   applyLayerSettings(layerSettings[settingsLayer] || SETTINGS_DEFAULTS);
+  // Pre-seed colors for ALL assets (both layers) so timeline always has colors
+  // even if the sidebar hasn't been rendered for the other layer yet.
+  [...(currentAssetsByLayer.songs || []), ...(currentAssetsByLayer.sounds || [])].forEach(a => {
+    if (!clipColors[a.id]) clipColors[a.id] = COLORS[colorIdx++ % COLORS.length];
+  });
   renderClipList(currentLayerAssets());
   updateUploadZoneState(currentLayerAssets().length);
   updateTargetDurationMax(currentAssetsByLayer.songs || []);
