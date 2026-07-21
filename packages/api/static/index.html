@@ -681,7 +681,7 @@
 
     <!-- Audio player -->
     <div class="player-section">
-      <audio id="audioPlayer"></audio>
+      <audio id="audioPlayer" preload="auto"></audio>
       <button class="play-btn" id="playBtn" onclick="togglePlay()" disabled title="Play / Pause">▶</button>
       <span class="player-time" id="playerTime">0:00 / 0:00</span>
       <div style="flex:1"></div>
@@ -737,6 +737,7 @@ let contentView = 'settings';
 let currentAssetsByLayer = { songs: [], sounds: [] };
 let isScrubbing = false;     // true while user is dragging the playhead
 let pendingSeekRatio = null; // set in doSeek, cleared on 'seeked' — guards against timeupdate(0) after play()
+let userSeekTime = null;     // last manual seek time in seconds; outlives pendingSeekRatio; re-applied on play()
 const COLORS = ['#00d4b4','#0099ff','#f5a623','#b44fff','#ff6b6b','#44d62c','#ff9f43','#54a0ff'];
 const clipColors = {};
 let colorIdx = 0;
@@ -1909,12 +1910,14 @@ function setupPlayer() {
     const rect = ruler.getBoundingClientRect();
     if (!rect.width) return;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    pendingSeekRatio = ratio; // protect against timeupdate(0) until seeked fires
+    pendingSeekRatio = ratio; // visual guard: holds position until 'seeked' confirms it
     updateDawPlayhead(ratio);
     const dur = audio.duration;
     if (isFinite(dur) && dur > 0) {
-      el('playerTime').textContent = `${fmtTimeFull(ratio * dur)} / ${fmtTimeFull(dur)}`;
-      audio.currentTime = ratio * dur;
+      const seekTo = ratio * dur;
+      userSeekTime = seekTo; // persists until consumed by togglePlay
+      el('playerTime').textContent = `${fmtTimeFull(seekTo)} / ${fmtTimeFull(dur)}`;
+      audio.currentTime = seekTo;
     }
   }
 
@@ -1935,6 +1938,8 @@ function setupPlayer() {
 
 function loadAudio(url, duration, sizeMb) {
   const audio = el('audioPlayer');
+  userSeekTime = null;
+  pendingSeekRatio = null;
   audio.src = url + '?t=' + Date.now();
   audio.load();
   el('playBtn').disabled = false;
@@ -1947,8 +1952,22 @@ function loadAudio(url, duration, sizeMb) {
 
 function togglePlay() {
   const audio = el('audioPlayer');
-  if (audio.paused) { audio.play(); el('playBtn').textContent = '\u23f8'; }
-  else { audio.pause(); el('playBtn').textContent = '\u25b6'; }
+  if (audio.paused) {
+    // If the user manually positioned the playhead while paused, re-apply the
+    // seek right before play().  Browsers sometimes fire seeked early (while
+    // still paused) and then emit a spurious timeupdate(0) on the first tick
+    // of play — re-applying here and re-arming pendingSeekRatio defeats that.
+    if (userSeekTime !== null && isFinite(audio.duration) && audio.duration > 0) {
+      audio.currentTime = userSeekTime;
+      pendingSeekRatio = userSeekTime / audio.duration;
+      userSeekTime = null;
+    }
+    audio.play();
+    el('playBtn').textContent = '\u23f8';
+  } else {
+    audio.pause();
+    el('playBtn').textContent = '\u25b6';
+  }
 }
 
 // ─────────────────────────────────────────────
