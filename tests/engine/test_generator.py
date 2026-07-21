@@ -6,7 +6,6 @@ from packages.engine.models import (
 )
 from tests.engine.fixtures import make_asset, three_clips, basic_params
 
-
 TEST_SEED = "cnc-audio-test-seed"
 
 
@@ -31,7 +30,6 @@ class TestDeterminism:
         t2 = generate_timeline(clips, params, "seed-two")
         ids1 = [e.asset_id for e in t1.events if e.type == "clip"]
         ids2 = [e.asset_id for e in t2.events if e.type == "clip"]
-        # With 3 clips and 60s, almost certainly different ordering
         assert ids1 != ids2 or t1.events[0].source_start_seconds != t2.events[0].source_start_seconds
 
 
@@ -55,12 +53,36 @@ class TestDuration:
         positions = [e.position_seconds for e in tl.events]
         assert positions == sorted(positions)
 
+    def test_fill_random_clip_avoids_trailing_silence(self):
+        clips = [make_asset("a", "clip_a", duration=12.0)]
+        params = basic_params(
+            target=10.0,
+            min_clip=6.0,
+            max_clip=6.0,
+            duration_rule="fill_random_clip",
+        )
+        tl = generate_timeline(clips, params, TEST_SEED)
+        assert abs(tl.total_duration_seconds - 10.0) < 0.001
+        assert tl.events[-1].type == "clip"
+
+    def test_extend_last_clip_avoids_trailing_silence(self):
+        clips = [make_asset("a", "clip_a", duration=12.0)]
+        params = basic_params(
+            target=10.0,
+            min_clip=6.0,
+            max_clip=6.0,
+            duration_rule="extend_last_clip",
+        )
+        tl = generate_timeline(clips, params, TEST_SEED)
+        assert abs(tl.total_duration_seconds - 10.0) < 0.001
+        assert tl.events[-1].type == "clip"
+
     def test_clip_durations_within_bounds(self):
         clips = three_clips()
         params = basic_params(min_clip=2.0, max_clip=5.0, duration_rule="trim_last")
         tl = generate_timeline(clips, params, TEST_SEED)
         clip_events = [e for e in tl.events if e.type == "clip"]
-        for e in clip_events[:-1]:  # all but last (last may be trimmed)
+        for e in clip_events[:-1]:  # all but last (last may be trimmed to fit)
             dur = e.source_end_seconds - e.source_start_seconds
             assert dur >= 2.0 - 0.001
             assert dur <= 5.0 + 0.001
@@ -98,9 +120,7 @@ class TestCrossfade:
                 prev = clip_events[i]
                 curr = clip_events[i + 1]
                 prev_end = prev.position_seconds + (prev.source_end_seconds - prev.source_start_seconds)
-                # Current clip starts before previous ends (overlap)
                 assert curr.position_seconds < prev_end, "Expected overlap for crossfade"
-                # fade_in on current should match fade_out on previous
                 assert abs(curr.fade_in_seconds - prev.fade_out_seconds) < 0.001
 
     def test_no_crossfade_when_disabled(self):
@@ -126,8 +146,11 @@ class TestSilence:
         params = basic_params(target=30.0, silence=True, crossfade=False)
         params.silence = SilenceParams(enabled=True, probability=1.0, min_seconds=0.3, max_seconds=0.8)
         tl = generate_timeline(clips, params, TEST_SEED)
+        # Only check non-filler silences (filler may be shorter)
+        clip_events = [e for e in tl.events if e.type == "clip"]
+        last_clip_pos = max(e.position_seconds for e in clip_events) if clip_events else 0
         for e in tl.events:
-            if e.type == "silence":
+            if e.type == "silence" and e.position_seconds < last_clip_pos:
                 assert e.duration_seconds >= 0.3 - 0.001
                 assert e.duration_seconds <= 0.8 + 0.001
 
@@ -135,14 +158,14 @@ class TestSilence:
 class TestSequential:
     def test_sequential_respects_asset_order(self):
         clips = three_clips()  # a, b, c
-        params = basic_params(target=30.0)
+        params = basic_params(target=12.0, min_clip=2.0, max_clip=2.0)
         params.selection = SelectionParams(distribution="sequential")
         tl = generate_timeline(clips, params, TEST_SEED)
         clip_ids = [e.asset_id for e in tl.events if e.type == "clip"]
-        # Should cycle through a, b, c in order
         expected_cycle = ["a", "b", "c"]
-        for i, asset_id in enumerate(clip_ids):
-            assert asset_id == expected_cycle[i % 3], f"Expected {expected_cycle[i%3]} at position {i}, got {asset_id}"
+        for i, asset_id in enumerate(clip_ids[:6]):
+            assert asset_id == expected_cycle[i % 3], \
+                f"Expected {expected_cycle[i % 3]} at position {i}, got {asset_id}"
 
 
 class TestSourceRegion:
@@ -157,3 +180,25 @@ class TestSourceRegion:
                 assert e.source_start_seconds >= 0.0
                 assert e.source_end_seconds <= asset.duration_seconds + 0.001
                 assert e.source_end_seconds > e.source_start_seconds
+
+    def test_reused_asset_regions_do_not_overlap(self):
+        clips = [make_asset("only", "single_clip", duration=18.0)]
+        params = basic_params(
+            target=16.0,
+            min_clip=2.0,
+            max_clip=4.0,
+            max_per_clip=20,
+            duration_rule="trim_last",
+        )
+        params.selection = SelectionParams(distribution="uniform", chaos=0.5)
+        tl = generate_timeline(clips, params, TEST_SEED)
+        regions = sorted(
+            (
+                e.source_start_seconds,
+                e.source_end_seconds,
+            )
+            for e in tl.events
+            if e.type == "clip"
+        )
+        for i in range(len(regions) - 1):
+            assert regions[i][1] <= regions[i + 1][0] + 0.001

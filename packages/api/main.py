@@ -1,51 +1,86 @@
-"""CNC Audio -- FastAPI backend."""
+"""CNC Audio — FastAPI backend server."""
 import os
+import re
+import shutil
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from packages.engine import (
-    Asset, ClipDuration, CrossfadeParams, ExportSettings, GainParams,
-    Parameters, RepetitionParams, SelectionParams, SilenceParams,
-    check_feasibility, generate_timeline, hash_file, load_project,
-    new_project, save_project,
+    Asset,
+    ClipDuration,
+    CrossfadeParams,
+    ExportSettings,
+    GainParams,
+    Parameters,
+    RepetitionParams,
+    SelectionParams,
+    SilenceParams,
+    check_feasibility,
+    generate_timeline,
+    hash_file,
+    load_project,
+    new_project,
+    save_project,
 )
 from packages.renderer.importer import convert_to_standard_wav, probe_duration
 from packages.renderer.renderer import render_timeline
+
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
 
 app = FastAPI(title="CNC Audio", version="1.0.0")
 
 PROJECTS_DIR = Path("projects")
 PROJECTS_DIR.mkdir(exist_ok=True)
+
 STATIC_DIR = Path("packages/api/static")
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
+# In-memory project registry: project_id -> project dir
+_projects: Dict[str, Path] = {}
 
-def _pdir(pid): return PROJECTS_DIR / pid
-def _cnc(pid):  return _pdir(pid) / "project.cnc"
 
-def _load(pid):
-    p = _cnc(pid)
-    if not p.exists(): raise HTTPException(404, f"Project '{pid}' not found.")
-    return load_project(str(p))
+def _project_dir(project_id: str) -> Path:
+    return PROJECTS_DIR / project_id
 
-def _save(pid, project): save_project(project, str(_cnc(pid)))
 
-def _to_dict(project):
+def _cnc_path(project_id: str) -> Path:
+    return _project_dir(project_id) / "project.cnc"
+
+
+def _load(project_id: str):
+    path = _cnc_path(project_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+    return load_project(str(path))
+
+
+def _save(project_id: str, project):
+    save_project(project, str(_cnc_path(project_id)))
+
+
+def _project_to_dict(project) -> dict:
+    """Serialize a Project to a JSON-safe dict for API responses."""
     from packages.engine.project import _dump_asset, _dump_parameters, _dump_event
     d = {
-        "version": project.version, "project": project.project,
+        "version": project.version,
+        "project": project.project,
         "assets": [_dump_asset(a) for a in project.assets],
         "parameters": _dump_parameters(project.parameters),
         "seed": project.seed,
         "export": {
-            "format": project.export.format, "sample_rate": project.export.sample_rate,
-            "bit_depth": project.export.bit_depth, "normalize_output": project.export.normalize_output,
+            "format": project.export.format,
+            "sample_rate": project.export.sample_rate,
+            "bit_depth": project.export.bit_depth,
+            "normalize_output": project.export.normalize_output,
             "target_output_lufs": project.export.target_output_lufs,
             "true_peak_limit_dbtp": project.export.true_peak_limit_dbtp,
         },
@@ -58,62 +93,127 @@ def _to_dict(project):
     return d
 
 
-# -- Projects --
+def _safe_project_filename(project_name: str) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|]+', "-", project_name).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    if not cleaned:
+        cleaned = "Untitled Project"
+    return cleaned
+
+
+def _download_output_path(project_id: str, project) -> Path:
+    download_dir = _project_dir(project_id) / "downloads"
+    download_dir.mkdir(exist_ok=True)
+    project_name = project.project.get("name", "Untitled Project")
+    return download_dir / f"{_safe_project_filename(project_name)}.wav"
+
+
+# ---------------------------------------------------------------------------
+# Project endpoints
+# ---------------------------------------------------------------------------
+
 class CreateProjectRequest(BaseModel):
     name: str = "Untitled Project"
 
+
 @app.post("/api/projects")
 def create_project(body: CreateProjectRequest):
-    pid = str(uuid.uuid4())
-    (_pdir(pid) / "assets").mkdir(parents=True, exist_ok=True)
-    (_pdir(pid) / "renders").mkdir(parents=True, exist_ok=True)
+    project_id = str(uuid.uuid4())
+    project_dir = _project_dir(project_id)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "assets").mkdir(exist_ok=True)
+    (project_dir / "renders").mkdir(exist_ok=True)
+    (project_dir / "downloads").mkdir(exist_ok=True)
+
     project = new_project(body.name)
-    _save(pid, project)
-    return {"id": pid, **_to_dict(project)}
-
-@app.get("/api/projects/{pid}")
-def get_project(pid: str):
-    return {"id": pid, **_to_dict(_load(pid))}
+    _save(project_id, project)
+    return {"id": project_id, **_project_to_dict(project)}
 
 
-# -- Assets --
-@app.post("/api/projects/{pid}/assets")
-async def import_asset(pid: str, file: UploadFile = File(...)):
-    project = _load(pid)
-    assets_dir = _pdir(pid) / "assets"
+@app.get("/api/projects/{project_id}")
+def get_project(project_id: str):
+    project = _load(project_id)
+    return {"id": project_id, **_project_to_dict(project)}
+
+
+class ProjectNameRequest(BaseModel):
+    name: str
+
+
+@app.put("/api/projects/{project_id}/name")
+def update_project_name(project_id: str, body: ProjectNameRequest):
+    project = _load(project_id)
+    name = body.name.strip() or "Untitled Project"
+    project.project["name"] = name
+    _save(project_id, project)
+    return {"name": name}
+
+
+# ---------------------------------------------------------------------------
+# Asset import
+# ---------------------------------------------------------------------------
+
+@app.post("/api/projects/{project_id}/assets")
+async def import_asset(project_id: str, file: UploadFile = File(...)):
+    project = _load(project_id)
+    project_dir = _project_dir(project_id)
+    assets_dir = project_dir / "assets"
+
+    # Save the uploaded file to a temp location
     ext = Path(file.filename).suffix.lower()
     asset_id = str(uuid.uuid4())
-    orig = assets_dir / f"{asset_id}_original{ext}"
-    with orig.open("wb") as f:
-        f.write(await file.read())
-    wav = assets_dir / f"{asset_id}.wav"
+    original_path = assets_dir / f"{asset_id}_original{ext}"
+
+    with original_path.open("wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    # Convert to standard WAV for rendering
+    wav_path = assets_dir / f"{asset_id}.wav"
     try:
-        convert_to_standard_wav(str(orig), str(wav))
-        duration = probe_duration(str(wav))
+        convert_to_standard_wav(str(original_path), str(wav_path))
+        duration = probe_duration(str(wav_path))
     except Exception as e:
-        orig.unlink(missing_ok=True); wav.unlink(missing_ok=True)
-        raise HTTPException(422, f"Audio processing failed: {e}")
+        original_path.unlink(missing_ok=True)
+        wav_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=f"Failed to process audio: {e}")
+
+    file_hash = hash_file(str(original_path))
+
     asset = Asset(
-        id=asset_id, name=Path(file.filename).stem, path=f"assets/{asset_id}_original{ext}",
-        hash=hash_file(str(orig)), duration_seconds=round(duration, 4),
-        format=ext.lstrip("."), weight=1.0,
+        id=asset_id,
+        name=Path(file.filename).stem,
+        path=f"assets/{asset_id}_original{ext}",
+        hash=file_hash,
+        duration_seconds=round(duration, 4),
+        format=ext.lstrip("."),
+        weight=1.0,
     )
     project.assets.append(asset)
-    _save(pid, project)
+    _save(project_id, project)
+
     from packages.engine.project import _dump_asset
     return _dump_asset(asset)
 
-@app.delete("/api/projects/{pid}/assets/{asset_id}")
-def delete_asset(pid: str, asset_id: str):
-    project = _load(pid)
+
+@app.delete("/api/projects/{project_id}/assets/{asset_id}")
+def delete_asset(project_id: str, asset_id: str):
+    project = _load(project_id)
     project.assets = [a for a in project.assets if a.id != asset_id]
-    for f in (_pdir(pid) / "assets").glob(f"{asset_id}*"):
+
+    # Remove files
+    assets_dir = _project_dir(project_id) / "assets"
+    for f in assets_dir.glob(f"{asset_id}*"):
         f.unlink(missing_ok=True)
-    _save(pid, project)
+
+    _save(project_id, project)
     return {"ok": True}
 
 
-# -- Parameters --
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+
 class ParametersRequest(BaseModel):
     target_duration_seconds: float
     clip_duration_min: float
@@ -133,89 +233,192 @@ class ParametersRequest(BaseModel):
     target_lufs: float = -18.0
     max_gain_db: float = 12.0
     random_variation_db: float = 0.0
-    distribution: str = "weighted"
-    chaos: float = 0.5
+    distribution: str = "uniform"
+    chaos: float = 1.0
+    allow_repeats: bool = True
+    no_repeat_sections: bool = True
+    repeat_decay: float = 0.0
     duration_rule: str = "fade_last"
     asset_weights: Optional[Dict[str, float]] = None
 
-@app.put("/api/projects/{pid}/parameters")
-def update_parameters(pid: str, body: ParametersRequest):
-    project = _load(pid)
+
+@app.put("/api/projects/{project_id}/parameters")
+def update_parameters(project_id: str, body: ParametersRequest):
+    project = _load(project_id)
+
+    # Apply per-asset weights if provided
     if body.asset_weights:
-        for a in project.assets:
-            if a.id in body.asset_weights:
-                a.weight = body.asset_weights[a.id]
+        for asset in project.assets:
+            if asset.id in body.asset_weights:
+                asset.weight = body.asset_weights[asset.id]
+
     project.parameters = Parameters(
         target_duration_seconds=body.target_duration_seconds,
-        clip_duration=ClipDuration(min_seconds=body.clip_duration_min, max_seconds=body.clip_duration_max),
-        repetition=RepetitionParams(max_per_clip=body.max_per_clip, min_gap_clips=body.min_gap_clips, allow_consecutive=body.allow_consecutive),
-        crossfade=CrossfadeParams(enabled=body.crossfade_enabled, min_seconds=body.crossfade_min, max_seconds=body.crossfade_max, probability=body.crossfade_probability),
-        silence=SilenceParams(enabled=body.silence_enabled, probability=body.silence_probability, min_seconds=body.silence_min, max_seconds=body.silence_max),
-        gain=GainParams(normalize=body.normalize, target_lufs=body.target_lufs, max_gain_db=body.max_gain_db, random_variation_db=body.random_variation_db),
-        selection=SelectionParams(distribution=body.distribution, chaos=body.chaos),
+        clip_duration=ClipDuration(
+            min_seconds=body.clip_duration_min,
+            max_seconds=body.clip_duration_max,
+        ),
+        repetition=RepetitionParams(
+            max_per_clip=1 if not body.allow_repeats else body.max_per_clip,
+            min_gap_clips=body.min_gap_clips,
+            allow_consecutive=body.allow_consecutive,
+            no_repeat_sections=body.no_repeat_sections,
+            repeat_decay=body.repeat_decay,
+        ),
+        crossfade=CrossfadeParams(
+            enabled=body.crossfade_enabled,
+            min_seconds=body.crossfade_min,
+            max_seconds=body.crossfade_max,
+            probability=body.crossfade_probability,
+        ),
+        silence=SilenceParams(
+            enabled=body.silence_enabled,
+            probability=body.silence_probability,
+            min_seconds=body.silence_min,
+            max_seconds=body.silence_max,
+        ),
+        gain=GainParams(
+            normalize=body.normalize,
+            target_lufs=body.target_lufs,
+            max_gain_db=body.max_gain_db,
+            random_variation_db=body.random_variation_db,
+        ),
+        selection=SelectionParams(
+            distribution=body.distribution,
+            chaos=body.chaos,
+        ),
         duration_rule=body.duration_rule,
     )
-    _save(pid, project)
-    return _to_dict(project)
+    _save(project_id, project)
+    return _project_to_dict(project)
+
+
+# ---------------------------------------------------------------------------
+# Seed
+# ---------------------------------------------------------------------------
 
 class SeedRequest(BaseModel):
     seed: str
 
-@app.put("/api/projects/{pid}/seed")
-def update_seed(pid: str, body: SeedRequest):
-    project = _load(pid)
+
+@app.put("/api/projects/{project_id}/seed")
+def update_seed(project_id: str, body: SeedRequest):
+    project = _load(project_id)
     project.seed = body.seed
-    _save(pid, project)
+    _save(project_id, project)
     return {"seed": project.seed}
 
 
-# -- Feasibility --
-@app.get("/api/projects/{pid}/feasibility")
-def get_feasibility(pid: str):
-    project = _load(pid)
-    r = check_feasibility(project.assets, project.parameters)
-    return {"feasible": r.feasible, "warnings": r.warnings, "errors": r.errors}
+# ---------------------------------------------------------------------------
+# Feasibility
+# ---------------------------------------------------------------------------
+
+@app.get("/api/projects/{project_id}/feasibility")
+def get_feasibility(project_id: str):
+    project = _load(project_id)
+    result = check_feasibility(project.assets, project.parameters)
+    return {
+        "feasible": result.feasible,
+        "warnings": result.warnings,
+        "errors": result.errors,
+    }
 
 
-# -- Generate --
-@app.post("/api/projects/{pid}/generate")
-def generate(pid: str):
-    project = _load(pid)
-    r = check_feasibility(project.assets, project.parameters)
-    if not r.feasible:
-        raise HTTPException(422, {"errors": r.errors, "warnings": r.warnings})
-    project.timeline = generate_timeline(project.assets, project.parameters, project.seed)
-    _save(pid, project)
+# ---------------------------------------------------------------------------
+# Generate
+# ---------------------------------------------------------------------------
+
+@app.post("/api/projects/{project_id}/generate")
+def generate(project_id: str):
+    project = _load(project_id)
+
+    feasibility = check_feasibility(project.assets, project.parameters)
+    if not feasibility.feasible:
+        raise HTTPException(
+            status_code=422,
+            detail={"errors": feasibility.errors, "warnings": feasibility.warnings},
+        )
+
+    project.timeline = generate_timeline(
+        project.assets, project.parameters, project.seed
+    )
+    _save(project_id, project)
+
     from packages.engine.project import _dump_event
     return {
         "total_duration_seconds": project.timeline.total_duration_seconds,
         "event_count": len(project.timeline.events),
         "clip_count": sum(1 for e in project.timeline.events if e.type == "clip"),
         "events": [_dump_event(e) for e in project.timeline.events],
-        "warnings": r.warnings,
+        "warnings": feasibility.warnings,
     }
 
 
-# -- Render --
-@app.post("/api/projects/{pid}/render")
-def render(pid: str):
-    project = _load(pid)
+# ---------------------------------------------------------------------------
+# Render
+# ---------------------------------------------------------------------------
+
+@app.post("/api/projects/{project_id}/render")
+def render(project_id: str):
+    project = _load(project_id)
+
     if not project.timeline:
-        raise HTTPException(422, "Generate a timeline first.")
-    wav_map = {a.id: str(_pdir(pid) / "assets" / f"{a.id}.wav") for a in project.assets}
-    out = str(_pdir(pid) / "renders" / "latest.wav")
+        raise HTTPException(status_code=422, detail="Generate a timeline first.")
+
+    # Build asset_id -> wav path map
+    project_dir = _project_dir(project_id)
+    asset_wav_map = {
+        a.id: str(project_dir / "assets" / f"{a.id}.wav")
+        for a in project.assets
+    }
+
+    latest_path = project_dir / "renders" / "latest.wav"
+    output_path = _download_output_path(project_id, project)
+
     try:
-        render_timeline(project.timeline, wav_map, out, project.export)
+        render_timeline(project.timeline, asset_wav_map, str(output_path), project.export)
+        shutil.copyfile(str(output_path), str(latest_path))
     except Exception as e:
-        raise HTTPException(500, f"Render failed: {e}")
-    size_mb = round(os.path.getsize(out) / (1024*1024), 2)
-    return {"ok": True, "duration_seconds": project.timeline.total_duration_seconds, "size_mb": size_mb, "audio_url": f"/api/projects/{pid}/audio"}
+        raise HTTPException(status_code=500, detail=f"Render failed: {e}")
 
-@app.get("/api/projects/{pid}/audio")
-def get_audio(pid: str):
-    p = _pdir(pid) / "renders" / "latest.wav"
-    if not p.exists(): raise HTTPException(404, "No render found. Render the project first.")
-    return FileResponse(str(p), media_type="audio/wav", filename="cnc-audio.wav")
+    size_mb = os.path.getsize(str(output_path)) / (1024 * 1024)
+    filename = output_path.name
+    return {
+        "ok": True,
+        "duration_seconds": project.timeline.total_duration_seconds,
+        "size_mb": round(size_mb, 2),
+        "audio_url": f"/api/projects/{project_id}/audio",
+        "download_url": f"/api/projects/{project_id}/download",
+        "filename": filename,
+    }
 
+
+@app.get("/api/projects/{project_id}/audio")
+def get_audio(project_id: str):
+    audio_path = _project_dir(project_id) / "renders" / "latest.wav"
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="No render found. Render the project first.")
+    return FileResponse(
+        str(audio_path),
+        media_type="audio/wav",
+    )
+
+
+@app.get("/api/projects/{project_id}/download")
+def download_audio(project_id: str):
+    project = _load(project_id)
+    output_path = _download_output_path(project_id, project)
+    if not output_path.exists():
+        raise HTTPException(status_code=404, detail="No render found. Render the project first.")
+    return FileResponse(
+        str(output_path),
+        media_type="audio/wav",
+        filename=output_path.name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Static frontend
+# ---------------------------------------------------------------------------
 
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

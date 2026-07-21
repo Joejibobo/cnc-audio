@@ -1,12 +1,7 @@
-"""Deterministic, seeded timeline generator.
-
-Given a list of assets, generation parameters, and a seed string, produces a
-validated Timeline. The same seed + assets + parameters always produces the
-same result.
-"""
+"""Deterministic, seeded timeline generator."""
 import hashlib
 import random
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .models import Asset, ClipEvent, Parameters, SilenceEvent, Timeline
 
@@ -25,26 +20,34 @@ def _select_clip(
     recent_ids: List[str],
     sequential_idx: List[int],
     last_clip_id: Optional[str],
+    used_ranges_by_asset: Dict[str, List[Tuple[float, float]]],
+    min_required_seconds: Optional[float] = None,
 ) -> Optional[Asset]:
     """Select the next clip, enforcing hard constraints and scoring soft preferences."""
     max_per = params.repetition.max_per_clip
+    min_required = (
+        params.clip_duration.min_seconds
+        if min_required_seconds is None
+        else min_required_seconds
+    )
 
-    # Hard filter: clips that are usable and haven't hit their repeat ceiling
     candidates = [
         a for a in assets
-        if a.duration_seconds >= params.clip_duration.min_seconds
+        if a.duration_seconds >= min_required
         and (max_per is None or use_counts.get(a.id, 0) < max_per)
+        and (
+            not params.repetition.no_repeat_sections
+            or _max_available_span(a.duration_seconds, used_ranges_by_asset.get(a.id, [])) >= min_required
+        )
     ]
 
     if not candidates:
         return None
 
-    # Hard filter: no back-to-back repeats
     if not params.repetition.allow_consecutive and last_clip_id is not None:
         no_consec = [a for a in candidates if a.id != last_clip_id]
         if no_consec:
             candidates = no_consec
-        # If no_consec is empty we relax this constraint rather than fail
 
     if not candidates:
         return None
@@ -61,16 +64,21 @@ def _select_clip(
                 return asset
         return None
 
-    # Compute base weights
     if dist == "uniform":
         weights = [1.0] * len(candidates)
     else:  # weighted
         weights = [max(0.0, a.weight) for a in candidates]
 
-    # Soft preference: penalize recently used clips based on gap and chaos
+    if params.repetition.repeat_decay > 0:
+        decay = params.repetition.repeat_decay
+        for i, a in enumerate(candidates):
+            count = use_counts.get(a.id, 0)
+            if count > 0:
+                weights[i] *= max(0.01, (1.0 - decay) ** count)
+
     min_gap = params.repetition.min_gap_clips
     chaos = params.selection.chaos
-    if min_gap > 0 and chaos < 1.0 and len(recent_ids) > 0:
+    if min_gap > 0 and chaos < 1.0 and recent_ids:
         recent_window = recent_ids[-min_gap:]
         penalty_strength = (1.0 - chaos) * 0.85
         for i, a in enumerate(candidates):
@@ -104,6 +112,207 @@ def _clip_gain_db(asset: Asset, params: Parameters, rng: random.Random) -> float
     return round(gain, 3)
 
 
+def _sorted_intervals(intervals: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    return sorted(intervals, key=lambda x: x[0])
+
+
+def _available_windows(
+    total_duration: float, used_intervals: List[Tuple[float, float]]
+) -> List[Tuple[float, float]]:
+    windows: List[Tuple[float, float]] = []
+    cursor = 0.0
+    for start, end in _sorted_intervals(used_intervals):
+        start = max(0.0, min(total_duration, start))
+        end = max(0.0, min(total_duration, end))
+        if end <= start:
+            continue
+        if start > cursor:
+            windows.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < total_duration:
+        windows.append((cursor, total_duration))
+    return windows
+
+
+def _max_available_span(
+    total_duration: float, used_intervals: List[Tuple[float, float]]
+) -> float:
+    windows = _available_windows(total_duration, used_intervals)
+    if not windows:
+        return 0.0
+    return max(end - start for start, end in windows)
+
+
+def _pick_source_region(
+    asset_duration: float,
+    used_intervals: List[Tuple[float, float]],
+    dur: float,
+    rng: random.Random,
+) -> Optional[Tuple[float, float]]:
+    if dur <= 0:
+        return None
+    windows = _available_windows(asset_duration, used_intervals)
+    valid_windows = [(start, end) for start, end in windows if (end - start) >= dur]
+    if not valid_windows:
+        return None
+
+    capacities = [(end - start) - dur for start, end in valid_windows]
+    weights = [cap + 1e-6 for cap in capacities]
+    chosen = rng.choices(valid_windows, weights=weights, k=1)[0]
+    start, end = chosen
+    source_start = rng.uniform(start, end - dur)
+    return source_start, source_start + dur
+
+
+def _register_used_range(
+    used_ranges_by_asset: Dict[str, List[Tuple[float, float]]],
+    asset_id: str,
+    start: float,
+    end: float,
+) -> None:
+    if end <= start:
+        return
+    used_ranges_by_asset.setdefault(asset_id, []).append((start, end))
+
+
+def _fill_remaining_with_random_clip(
+    events: List,
+    assets: List[Asset],
+    params: Parameters,
+    rng: random.Random,
+    use_counts: dict,
+    recent_ids: List[str],
+    sequential_idx: List[int],
+    last_clip_id: Optional[str],
+    used_ranges_by_asset: Dict[str, List[Tuple[float, float]]],
+    position: float,
+    target: float,
+) -> float:
+    """Fill the final remaining gap with one additional random clip segment."""
+    remaining = target - position
+    if remaining <= 0:
+        return position
+
+    clip = _select_clip(
+        assets,
+        params,
+        rng,
+        use_counts,
+        recent_ids,
+        sequential_idx,
+        last_clip_id,
+        used_ranges_by_asset,
+        min_required_seconds=0.001,
+    )
+    if clip is None:
+        return position
+
+    max_available = _max_available_span(
+        clip.duration_seconds, used_ranges_by_asset.get(clip.id, [])
+    )
+    dur = min(remaining, max_available)
+    if dur <= 0:
+        return position
+
+    used_for_region = used_ranges_by_asset.get(clip.id, []) if params.repetition.no_repeat_sections else []
+    region = _pick_source_region(
+        clip.duration_seconds,
+        used_for_region,
+        dur,
+        rng,
+    )
+    if region is None:
+        return position
+    source_start, source_end = region
+
+    events.append(
+        ClipEvent(
+            type="clip",
+            asset_id=clip.id,
+            position_seconds=round(position, 4),
+            source_start_seconds=round(source_start, 4),
+            source_end_seconds=round(source_end, 4),
+            gain_db=_clip_gain_db(clip, params, rng),
+            fade_in_seconds=0.0,
+            fade_out_seconds=0.0,
+        )
+    )
+    _register_used_range(used_ranges_by_asset, clip.id, source_start, source_end)
+
+    return position + dur
+
+
+def _extend_last_clip(
+    last_clip_event: Optional[ClipEvent],
+    assets_by_id: dict,
+    used_ranges_by_asset: Dict[str, List[Tuple[float, float]]],
+    position: float,
+    target: float,
+) -> float:
+    """Extend the last clip event to reduce the final remaining gap."""
+    if last_clip_event is None:
+        return position
+
+    asset = assets_by_id.get(last_clip_event.asset_id)
+    if asset is None:
+        return position
+
+    remaining = target - position
+    if remaining <= 0:
+        return position
+
+    used_intervals = list(used_ranges_by_asset.get(last_clip_event.asset_id, []))
+    original_start = last_clip_event.source_start_seconds
+    original_end = last_clip_event.source_end_seconds
+    other_intervals = [
+        (s, e) for (s, e) in used_intervals
+        if not (abs(s - original_start) < 1e-6 and abs(e - original_end) < 1e-6)
+    ]
+
+    next_start = asset.duration_seconds
+    prev_end = 0.0
+    for start, end in _sorted_intervals(other_intervals):
+        if end <= original_start:
+            prev_end = max(prev_end, end)
+            continue
+        if start >= original_end:
+            next_start = min(next_start, start)
+            break
+
+    current_dur = (
+        last_clip_event.source_end_seconds - last_clip_event.source_start_seconds
+    )
+    max_dur = asset.duration_seconds
+    new_dur = min(max_dur, current_dur + remaining)
+    if new_dur <= current_dur:
+        return position
+
+    need_more = new_dur - current_dur
+    room_at_end = max(0.0, next_start - last_clip_event.source_end_seconds)
+    add_at_end = min(room_at_end, need_more)
+    last_clip_event.source_end_seconds = round(
+        last_clip_event.source_end_seconds + add_at_end, 4
+    )
+    need_more -= add_at_end
+    if need_more > 0:
+        room_at_start = max(0.0, last_clip_event.source_start_seconds - prev_end)
+        last_clip_event.source_start_seconds = round(
+            max(prev_end, last_clip_event.source_start_seconds - min(need_more, room_at_start)),
+            4,
+        )
+
+    adjusted_dur = (
+        last_clip_event.source_end_seconds - last_clip_event.source_start_seconds
+    )
+    added = max(0.0, adjusted_dur - current_dur)
+    if added > 0:
+        used_ranges_by_asset[last_clip_event.asset_id] = other_intervals + [(
+            last_clip_event.source_start_seconds,
+            last_clip_event.source_end_seconds,
+        )]
+    return position + added
+
+
 def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Timeline:
     """
     Generate a deterministic timeline.
@@ -123,23 +332,33 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
     sequential_idx = [0]
     last_clip_id: Optional[str] = None
     last_clip_event: Optional[ClipEvent] = None
+    assets_by_id = {a.id: a for a in assets}
+    used_ranges_by_asset: Dict[str, List[Tuple[float, float]]] = {}
 
     while True:
         remaining = target - position
 
-        # Stop if we can't fit another minimum-length clip
         if remaining < params.clip_duration.min_seconds:
             break
 
-        # --- Select clip ---
         clip = _select_clip(
-            assets, params, rng, use_counts, recent_ids, sequential_idx, last_clip_id
+            assets,
+            params,
+            rng,
+            use_counts,
+            recent_ids,
+            sequential_idx,
+            last_clip_id,
+            used_ranges_by_asset,
         )
         if clip is None:
-            break  # Exhausted available clips
+            break
 
-        # --- Determine how much of this clip to use ---
-        usable_max = min(params.clip_duration.max_seconds, clip.duration_seconds)
+        available_max = _max_available_span(
+            clip.duration_seconds,
+            used_ranges_by_asset.get(clip.id, []) if params.repetition.no_repeat_sections else [],
+        )
+        usable_max = min(params.clip_duration.max_seconds, available_max)
         usable_min = params.clip_duration.min_seconds
 
         if params.duration_rule != "pad_silence":
@@ -150,12 +369,18 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
 
         dur = rng.uniform(usable_min, usable_max)
 
-        # --- Pick a random region within the source asset ---
-        max_source_start = max(0.0, clip.duration_seconds - dur)
-        source_start = rng.uniform(0.0, max_source_start)
-        source_end = source_start + dur
+        used_for_region = used_ranges_by_asset.get(clip.id, []) if params.repetition.no_repeat_sections else []
+        region = _pick_source_region(
+            clip.duration_seconds,
+            used_for_region,
+            dur,
+            rng,
+        )
+        if region is None:
+            break
+        source_start, source_end = region
 
-        # --- Crossfade with previous clip ---
+        # Crossfade with the previous clip
         fade_in = 0.0
         if (
             last_clip_event is not None
@@ -165,8 +390,8 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
             prev_dur = last_clip_event.source_end_seconds - last_clip_event.source_start_seconds
             xfade_limit = min(
                 params.crossfade.max_seconds,
-                dur * 0.45,        # Don't crossfade more than 45% of the new clip
-                prev_dur * 0.45,   # Don't crossfade more than 45% of the previous clip
+                dur * 0.45,
+                prev_dur * 0.45,
             )
             xfade_min = min(params.crossfade.min_seconds, xfade_limit)
             if xfade_min <= xfade_limit and xfade_limit > 0:
@@ -175,10 +400,8 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
                 fade_in = xfade
                 position -= xfade
 
-        # --- Compute gain ---
         gain_db = _clip_gain_db(clip, params, rng)
 
-        # --- Check if this is the final clip ---
         is_last = position + dur >= target
         fade_out = 0.0
 
@@ -188,7 +411,6 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
             if params.duration_rule == "fade_last" and dur > 0:
                 fade_out = round(min(2.0, dur * 0.30), 4)
 
-        # --- Create event ---
         event = ClipEvent(
             type="clip",
             asset_id=clip.id,
@@ -202,8 +424,8 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
         events.append(event)
         last_clip_event = event
         position += dur
+        _register_used_range(used_ranges_by_asset, clip.id, source_start, source_end)
 
-        # --- Update tracking ---
         use_counts[clip.id] = use_counts.get(clip.id, 0) + 1
         recent_ids.append(clip.id)
         last_clip_id = clip.id
@@ -214,7 +436,6 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
         if is_last:
             break
 
-        # --- Maybe insert silence gap ---
         if params.silence.enabled and rng.random() < params.silence.probability:
             after_silence = target - position
             sil_max = min(params.silence.max_seconds, after_silence - params.clip_duration.min_seconds)
@@ -228,16 +449,41 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
                 ))
                 position += sil_dur
 
-    # --- Fill any remaining gap (e.g. from crossfade math or silence overshoot) ---
+    # Fill any remaining gap (e.g. from crossfade math)
     if position < target:
+        if params.duration_rule == "fill_random_clip":
+            position = _fill_remaining_with_random_clip(
+                events=events,
+                assets=assets,
+                params=params,
+                rng=rng,
+                use_counts=use_counts,
+                recent_ids=recent_ids,
+                sequential_idx=sequential_idx,
+                last_clip_id=last_clip_id,
+                used_ranges_by_asset=used_ranges_by_asset,
+                position=position,
+                target=target,
+            )
+        elif params.duration_rule == "extend_last_clip":
+            position = _extend_last_clip(
+                last_clip_event=last_clip_event,
+                assets_by_id=assets_by_id,
+                used_ranges_by_asset=used_ranges_by_asset,
+                position=position,
+                target=target,
+            )
+
         gap = round(target - position, 4)
-        if gap > 0.001:  # ignore sub-millisecond floating point noise
-            events.append(SilenceEvent(
-                type="silence",
-                position_seconds=round(position, 4),
-                duration_seconds=gap,
-            ))
-        position = target
+        if gap > 0.001:
+            events.append(
+                SilenceEvent(
+                    type="silence",
+                    position_seconds=round(position, 4),
+                    duration_seconds=gap,
+                )
+            )
+            position = target
 
     return Timeline(
         events=events,

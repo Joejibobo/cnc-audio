@@ -1,6 +1,6 @@
 import pytest
 from packages.engine.feasibility import check_feasibility
-from packages.engine.models import ClipDuration, CrossfadeParams, Parameters, RepetitionParams, SelectionParams
+from packages.engine.models import ClipDuration, Parameters, RepetitionParams, SelectionParams
 from tests.engine.fixtures import make_asset, three_clips, basic_params
 
 
@@ -24,7 +24,6 @@ class TestFeasibilityErrors:
         assert any("minimum clip duration" in e for e in result.errors)
 
     def test_cannot_fill_target_with_max_per_clip(self):
-        # 1 clip of 5s max, max_per_clip=1 → can produce max 5s, target=60s
         clips = [make_asset("a", "clip", duration=5.0)]
         params = basic_params(target=60.0, max_clip=5.0, max_per_clip=1, crossfade=False)
         result = check_feasibility(clips, params)
@@ -49,12 +48,11 @@ class TestFeasibilityWarnings:
             make_asset("a", "long", duration=10.0),
             make_asset("b", "short", duration=0.5),
         ]
-        result = check_feasibility(clips, basic_params(min_clip=2.0))
+        result = check_feasibility(clips, basic_params(target=8.0, min_clip=2.0))
         assert result.feasible
         assert any("shorter than min_clip_duration" in w for w in result.warnings)
 
     def test_tight_headroom_warns(self):
-        # Barely enough content
         clips = [make_asset("a", "clip", duration=5.0)]
         params = basic_params(target=5.0, min_clip=4.0, max_clip=5.0, max_per_clip=1, crossfade=False)
         result = check_feasibility(clips, params)
@@ -62,9 +60,8 @@ class TestFeasibilityWarnings:
         assert any("tight" in w.lower() for w in result.warnings)
 
     def test_gap_exceeds_clip_count_warns(self):
-        from packages.engine.models import RepetitionParams
         clips = [make_asset("a", "clip_a", duration=10.0), make_asset("b", "clip_b", duration=10.0)]
-        params = basic_params()
+        params = basic_params(target=15.0)
         params.repetition = RepetitionParams(min_gap_clips=5)
         result = check_feasibility(clips, params)
         assert result.feasible
@@ -73,12 +70,12 @@ class TestFeasibilityWarnings:
 
 class TestFeasibilitySuccess:
     def test_basic_success(self):
-        result = check_feasibility(three_clips(), basic_params())
+        result = check_feasibility(three_clips(), basic_params(target=20.0))
         assert result.feasible
         assert result.errors == []
 
-    def test_unlimited_repeats_always_feasible(self):
+    def test_total_unique_duration_caps_feasibility(self):
         clips = [make_asset("a", "clip", duration=3.0)]
         params = basic_params(target=3600.0, max_per_clip=None)
         result = check_feasibility(clips, params)
-        assert result.feasible
+        assert not result.feasible
