@@ -1969,12 +1969,14 @@ function renderTimeline(project) {
       const br = rightExposed ? R : '0';
       const borderRadius = `${tl} ${tr} ${br} ${bl}`;
 
-      // Extend non-final clips 1px to the right to cover subpixel rendering
-      // gaps that appear where percentage-based positions don't land on exact
-      // pixel boundaries.
-      const extraW = rightExposed ? '' : ';margin-right:-1px';
+      // For flush adjacent clips, compute width as the exact distance to the
+      // next clip's left edge so both clips share the same boundary pixel —
+      // no subpixel gap can appear regardless of DPI or zoom level.
+      const renderedWidthPct = (!rightExposed && nextEv && !isIncoming)
+        ? Math.max(0.2, pct(nextEv.position_seconds - ev.position_seconds))
+        : widthPct;
 
-      return `<div class="h-clip" style="left:${leftPct}%;width:${widthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius}${extraW}" title="${title}">
+      return `<div class="h-clip" style="left:${leftPct}%;width:${renderedWidthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius}" title="${title}">
           <span>${displayName}</span><span class="h-clip-meta">${fmtSec(audioDur)}</span>
         </div>`;
     }).join('');
