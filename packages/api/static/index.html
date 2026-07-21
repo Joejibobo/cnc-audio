@@ -1915,20 +1915,29 @@ function renderTimeline(project) {
       let bg     = color;
       let zIndex = idx + 1;
 
-      // If this clip starts inside the previous clip's audio territory it's
-      // the incoming side of a crossfade.  Render it on top with a left-edge
-      // gradient: prevColor → thisColor over the overlap width.
+      // Determine blending with previous clip:
+      //   crossfade = clips overlap in time (generator created overlap)
+      //   adjacent  = clips touch flush with no gap and no overlap
+      //   gapped    = real silence between clips
       if (idx > 0) {
-        const prev        = events[idx - 1];
+        const prev         = events[idx - 1];
         const prevAudioDur = Math.max(0.001, prev.source_end_seconds - prev.source_start_seconds);
-        const prevEnd     = prev.position_seconds + prevAudioDur;
-        if (ev.position_seconds < prevEnd - 0.01) {
+        const prevEnd      = prev.position_seconds + prevAudioDur;
+        const prevColor    = clipColors[prev.asset_id] || '#888888';
+        const gap          = ev.position_seconds - prevEnd;
+
+        if (gap < -0.01) {
+          // True crossfade: incoming clip starts inside outgoing clip.
+          // Use a minimum 25% visual gradient so it's always legible even
+          // when the actual overlap is tiny relative to a long clip.
           const overlapDur = prevEnd - ev.position_seconds;
-          // Gradient spans the overlap, capped so it never takes the whole clip
-          const fadePct = Math.min(80, (overlapDur / audioDur) * 100);
-          const prevColor = clipColors[prev.asset_id] || '#888888';
+          const fadePct = Math.min(80, Math.max(25, (overlapDur / audioDur) * 100));
           bg = `linear-gradient(to right, ${prevColor} 0%, ${color} ${fadePct.toFixed(1)}%)`;
           zIndex = idx + 10; // render on top of outgoing clip
+        } else if (gap < 0.05) {
+          // Adjacent (flush) clips with no meaningful gap: add a short
+          // soft blend at the left edge for visual continuity.
+          bg = `linear-gradient(to right, ${prevColor} 0%, ${color} 12%)`;
         }
       }
 
