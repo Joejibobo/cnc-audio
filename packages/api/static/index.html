@@ -2006,18 +2006,23 @@ function renderTimeline(project) {
       const borderRadius = `${tl} ${tr} ${br} ${bl}`;
 
       // For flush adjacent clips, compute width as the exact distance to the
-      // next clip's left edge so both clips share the same boundary pixel —
-      // no subpixel gap can appear regardless of DPI or zoom level.
+      // next clip's left edge, then add 1px via calc() so the outgoing clip
+      // physically overlaps the boundary — browser % rounding can still leave
+      // a hairline crack even when the math is exact.
       const renderedWidthPct = (!rightExposed && nextEv && !isIncoming)
         ? Math.max(0.2, pct(nextEv.position_seconds - ev.position_seconds))
         : widthPct;
+      // +1px on non-right-exposed clips closes any subpixel rendering crack
+      const widthStyle = (!rightExposed && nextEv && !isIncoming)
+        ? `calc(${renderedWidthPct}% + 1px)`
+        : `${renderedWidthPct}%`;
 
       _dbgAppend('clips', '#aaaaaa',
         `clip[${idx}] "${clipName.slice(0,28)}" leftPct=${leftPct.toFixed(2)} widthPct=${renderedWidthPct.toFixed(2)} ` +
         `br="${borderRadius}" leftExp=${leftExposed} rightExp=${rightExposed} incoming=${isIncoming}`
       );
 
-      return `<div class="h-clip" style="left:${leftPct}%;width:${renderedWidthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius}" title="${title}">
+      return `<div class="h-clip" style="left:${leftPct}%;width:${widthStyle};background:${bg};z-index:${zIndex};border-radius:${borderRadius}" title="${title}">
           <span class="h-clip-name">${clipName}</span>
         </div>`;
     }).join('');
