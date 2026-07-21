@@ -1994,8 +1994,8 @@ function renderTimeline(project) {
       const isIncoming = prevEv && (ev.position_seconds < prevEnd - 0.01);
 
       const R = '5px';
-      const tl = (leftExposed || isIncoming) ? R : '0';
-      const bl = (leftExposed || isIncoming) ? R : '0';
+      const tl = leftExposed ? R : '0';
+      const bl = leftExposed ? R : '0';
       const tr = rightExposed ? R : '0';
       const br = rightExposed ? R : '0';
       const borderRadius = `${tl} ${tr} ${br} ${bl}`;
