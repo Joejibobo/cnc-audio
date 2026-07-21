@@ -236,8 +236,7 @@
   .tl-empty .big { font-size: 48px; margin-bottom: 12px; }
   .h-clip {
     position: absolute; top: 9px; height: 40px; border-radius: 0;
-    border-top: 1px solid rgba(0,0,0,0.22); border-bottom: 1px solid rgba(0,0,0,0.22);
-    border-left: none; border-right: none;
+    border: none;
     display: flex; align-items: center;
     padding: 0 8px; color: #080808; font-weight: 700; font-size: 11px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -1937,11 +1936,8 @@ function renderTimeline(project) {
       const tr = rightExposed ? R : '0';
       const br = rightExposed ? R : '0';
       const borderRadius = `${tl} ${tr} ${br} ${bl}`;
-      // Add a left border only on exposed left edges (prevents double-border at joins)
-      const extraBorder = leftExposed ? 'border-left:1px solid rgba(0,0,0,0.22);' : '';
-      const rightBorder = rightExposed ? 'border-right:1px solid rgba(0,0,0,0.22);' : '';
 
-      return `<div class="h-clip" style="left:${leftPct}%;width:${widthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius};${extraBorder}${rightBorder}" title="${title}">
+      return `<div class="h-clip" style="left:${leftPct}%;width:${widthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius}" title="${title}">
           <span>${displayName}</span><span class="h-clip-meta">${fmtSec(audioDur)}</span>
         </div>`;
     }).join('');
