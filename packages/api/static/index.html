@@ -1527,13 +1527,15 @@ async function uploadFiles(files) {
   await checkFeasibility();
 }
 
-async function deleteAsset(assetId) {
+async function deleteAsset(assetId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
     await api('DELETE', `/api/projects/${projectId}/assets/${assetId}`);
     await refreshProject();
     await checkFeasibility();
   } catch(err) {
     toast(`\u274c Could not remove clip: ${err.message || err}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '\u2715'; }
   }
 }
 
@@ -1631,7 +1633,7 @@ function renderClipList(assets) {
         <span class="clip-icon" style="color:${c}">◼</span>
         <span class="clip-name" title="${a.name}">${a.name}</span>
         <span class="clip-duration">${fmtSec(a.duration_seconds)}</span>
-        <button class="clip-delete" onclick="deleteAsset('${a.id}')">\u2715</button>
+        <button class="clip-delete" onclick="deleteAsset('${a.id}', this)">\u2715</button>
       </div>
       ${weightedMode ? `<div class="clip-weight-row">
         <label>Weight</label>

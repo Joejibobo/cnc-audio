@@ -1,4 +1,5 @@
 """CNC Audio — FastAPI backend server."""
+import asyncio
 import os
 import re
 import shutil
@@ -56,6 +57,14 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 # In-memory project registry: project_id -> project dir
 _projects: Dict[str, Path] = {}
+
+# Per-project async locks to serialise concurrent writes (upload vs delete etc.)
+_project_locks: Dict[str, asyncio.Lock] = {}
+
+def _get_lock(project_id: str) -> asyncio.Lock:
+    if project_id not in _project_locks:
+        _project_locks[project_id] = asyncio.Lock()
+    return _project_locks[project_id]
 
 
 def _project_dir(project_id: str) -> Path:
@@ -505,14 +514,12 @@ async def import_project_bundle(file: UploadFile = File(...)):
 
 @app.post("/api/projects/{project_id}/assets")
 async def import_asset(project_id: str, category: str = "songs", file: UploadFile = File(...)):
-    project = _load(project_id)
-    _ensure_layered_project_state(project)
     if category not in ("songs", "sounds"):
         raise HTTPException(status_code=422, detail="category must be 'songs' or 'sounds'.")
     project_dir = _project_dir(project_id)
     assets_dir = project_dir / "assets"
 
-    # Save the uploaded file to a temp location
+    # Save the uploaded file to a temp location (outside the lock — I/O only)
     ext = Path(file.filename).suffix.lower()
     asset_id = str(uuid.uuid4())
     original_path = assets_dir / f"{asset_id}_original{ext}"
@@ -521,7 +528,7 @@ async def import_asset(project_id: str, category: str = "songs", file: UploadFil
         content = await file.read()
         f.write(content)
 
-    # Convert to standard WAV for rendering
+    # Convert to standard WAV for rendering (CPU work, outside the lock)
     wav_path = assets_dir / f"{asset_id}.wav"
     try:
         convert_to_standard_wav(str(original_path), str(wav_path))
@@ -542,32 +549,40 @@ async def import_asset(project_id: str, category: str = "songs", file: UploadFil
         format=ext.lstrip("."),
         weight=1.0,
     )
-    if category == "songs":
-        song_assets = _get_song_assets(project)
-        song_assets.append(asset)
-        _set_song_assets(project, song_assets)
-    else:
-        sound_assets = _get_sound_assets(project)
-        sound_assets.append(asset)
-        _set_sound_assets(project, sound_assets)
-    _save(project_id, project)
+
+    # Serialise the project-file write under a per-project lock
+    async with _get_lock(project_id):
+        project = _load(project_id)
+        _ensure_layered_project_state(project)
+        if category == "songs":
+            song_assets = _get_song_assets(project)
+            song_assets.append(asset)
+            _set_song_assets(project, song_assets)
+        else:
+            sound_assets = _get_sound_assets(project)
+            sound_assets.append(asset)
+            _set_sound_assets(project, sound_assets)
+        _save(project_id, project)
 
     return {"category": category, **_dump_asset(asset)}
 
 
 @app.delete("/api/projects/{project_id}/assets/{asset_id}")
-def delete_asset(project_id: str, asset_id: str):
-    project = _load(project_id)
-    _ensure_layered_project_state(project)
-    _set_song_assets(project, [a for a in _get_song_assets(project) if a.id != asset_id])
-    _set_sound_assets(project, [a for a in _get_sound_assets(project) if a.id != asset_id])
+async def delete_asset(project_id: str, asset_id: str):
+    async with _get_lock(project_id):
+        project = _load(project_id)
+        _ensure_layered_project_state(project)
+        # Asset may already be gone if a previous delete raced — that's fine
+        _set_song_assets(project, [a for a in _get_song_assets(project) if a.id != asset_id])
+        _set_sound_assets(project, [a for a in _get_sound_assets(project) if a.id != asset_id])
 
-    # Remove files
-    assets_dir = _project_dir(project_id) / "assets"
-    for f in assets_dir.glob(f"{asset_id}*"):
-        f.unlink(missing_ok=True)
+        # Remove files — use missing_ok so repeated calls don't crash
+        assets_dir = _project_dir(project_id) / "assets"
+        if assets_dir.exists():
+            for f in assets_dir.glob(f"{asset_id}*"):
+                f.unlink(missing_ok=True)
 
-    _save(project_id, project)
+        _save(project_id, project)
     return {"ok": True}
 
 
