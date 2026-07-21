@@ -1874,89 +1874,51 @@ function renderTimeline(project) {
   function buildTrackHtml(events) {
     if (!events.length) return '<div class="h-empty">No clips</div>';
 
-    // ── First pass: compute per-clip gradient info from crossfades ──────────
-    // For each clip we track which colour bleeds in from the left (fadeInColor)
-    // and which colour bleeds out to the right (fadeOutColor), and how many
-    // percent of the clip's visual width the gradient covers.
-    const fadeInfo = events.map(() => ({
-      fadeInColor: null,  fadeInPct: 0,
-      fadeOutColor: null, fadeOutPct: 0,
-    }));
-
-    for (let i = 0; i < events.length - 1; i++) {
-      const curr = events[i], next = events[i + 1];
-      const currAudioDur = Math.max(0.001, curr.source_end_seconds - curr.source_start_seconds);
-      const currEnd = curr.position_seconds + currAudioDur;
-      if (next.position_seconds >= currEnd) continue; // no overlap
-
-      const xDur = currEnd - next.position_seconds; // total crossfade duration
-      const half = xDur / 2;                        // each side contributes half
-
-      // Visual display width of curr clip = up to where next clip starts visually
-      const currDisplayDur = Math.max(0.001, next.position_seconds - curr.position_seconds);
-      // Visual display width of next clip = up to where clip after it starts
-      const nextDisplayDur = Math.max(0.001,
-        ((i + 2 < events.length) ? events[i + 2].position_seconds : total) - next.position_seconds
-      );
-
-      // How many percent of each clip's visual bar the gradient covers
-      const currFadeOutPct = Math.min(48, (half / currDisplayDur) * 100);
-      const nextFadeInPct  = Math.min(48, (half / nextDisplayDur) * 100);
-
-      fadeInfo[i].fadeOutColor = clipColors[next.asset_id] || '#888888';
-      fadeInfo[i].fadeOutPct   = currFadeOutPct;
-      fadeInfo[i + 1].fadeInColor = clipColors[curr.asset_id] || '#888888';
-      fadeInfo[i + 1].fadeInPct   = nextFadeInPct;
-    }
-
-    // ── Second pass: render clip divs with gradient backgrounds ────────────
+    // Each clip is positioned at its actual position_seconds with its full
+    // audio duration as width.  When a crossfade is present, the incoming
+    // clip's position_seconds already overlaps the outgoing clip (the
+    // generator set it that way).  We draw the incoming clip ON TOP with a
+    // gradient that transitions from the outgoing clip's colour to its own —
+    // producing a true seamless blend with no overlay divs needed.
     const blocks = events.map((ev, idx) => {
-      const dur = Math.max(0.001, ev.source_end_seconds - ev.source_start_seconds);
-      const nextStart = (idx + 1 < events.length) ? events[idx + 1].position_seconds : total;
-      const displayDur = Math.max(0.001, Math.min(dur, nextStart - ev.position_seconds + 0.001));
-      const leftPct  = pct(ev.position_seconds);
-      const widthPct = Math.max(0.4, pct(displayDur));
-      const clipName = clipNameForEvent(ev);
+      const audioDur  = Math.max(0.001, ev.source_end_seconds - ev.source_start_seconds);
+      const leftPct   = pct(ev.position_seconds);
+      const widthPct  = Math.max(0.2, pct(audioDur));
+      const clipName  = clipNameForEvent(ev);
       const displayName = clipName.length > 38 ? clipName.slice(0, 35) + '\u2026' : clipName;
-      const color = clipColors[ev.asset_id] || '#888888';
-      const { fadeInColor, fadeInPct, fadeOutColor, fadeOutPct } = fadeInfo[idx];
-      const gainText = ev.gain_db ? `${ev.gain_db > 0 ? '+' : ''}${ev.gain_db.toFixed(1)}dB` : '';
-      const title = `${clipName} | start ${fmtSec(ev.position_seconds)} | len ${fmtSec(dur)}${gainText ? ` | ${gainText}` : ''}`;
+      const color     = clipColors[ev.asset_id] || '#888888';
+      const gainText  = ev.gain_db ? `${ev.gain_db > 0 ? '+' : ''}${ev.gain_db.toFixed(1)}dB` : '';
+      const title     = `${clipName} | start ${fmtSec(ev.position_seconds)} | len ${fmtSec(audioDur)}${gainText ? ` | ${gainText}` : ''}`;
 
-      // Build CSS linear-gradient that encodes both fade edges in one pass
-      let bg;
-      if (fadeInColor || fadeOutColor) {
-        const stops = [];
-        if (fadeInPct > 0) {
-          stops.push(`${fadeInColor} 0%`);
-          stops.push(`${color} ${fadeInPct.toFixed(1)}%`);
-        } else {
-          stops.push(`${color} 0%`);
+      let bg     = color;
+      let zIndex = idx + 1;
+
+      // If this clip starts inside the previous clip's audio territory it's
+      // the incoming side of a crossfade.  Render it on top with a left-edge
+      // gradient: prevColor → thisColor over the overlap width.
+      if (idx > 0) {
+        const prev        = events[idx - 1];
+        const prevAudioDur = Math.max(0.001, prev.source_end_seconds - prev.source_start_seconds);
+        const prevEnd     = prev.position_seconds + prevAudioDur;
+        if (ev.position_seconds < prevEnd - 0.01) {
+          const overlapDur = prevEnd - ev.position_seconds;
+          // Gradient spans the overlap, capped so it never takes the whole clip
+          const fadePct = Math.min(80, (overlapDur / audioDur) * 100);
+          const prevColor = clipColors[prev.asset_id] || '#888888';
+          bg = `linear-gradient(to right, ${prevColor} 0%, ${color} ${fadePct.toFixed(1)}%)`;
+          zIndex = idx + 10; // render on top of outgoing clip
         }
-        if (fadeOutPct > 0) {
-          stops.push(`${color} ${(100 - fadeOutPct).toFixed(1)}%`);
-          stops.push(`${fadeOutColor} 100%`);
-        } else {
-          stops.push(`${color} 100%`);
-        }
-        bg = `linear-gradient(to right, ${stops.join(', ')})`;
-      } else {
-        bg = color;
       }
 
-      return `<div class="h-clip" style="left:calc(${leftPct}% + 1px);width:calc(${widthPct}% - 2px);background:${bg}" title="${title}">
-          <span>${displayName}</span><span class="h-clip-meta">${fmtSec(dur)}</span>
+      return `<div class="h-clip" style="left:${leftPct}%;width:${widthPct}%;background:${bg};z-index:${zIndex}" title="${title}">
+          <span>${displayName}</span><span class="h-clip-meta">${fmtSec(audioDur)}</span>
         </div>`;
     }).join('');
 
-    // ── Master fade overlays: gradient from black at track edges ───────────
+    // Master fade overlays (directional gradient, no hard edge)
     const overlays = [];
-    if (masterFadeIn > 0) {
-      overlays.push(`<div class="h-fade-overlay" style="left:0%;width:${Math.max(0.3, pct(masterFadeIn))}%;background:linear-gradient(to right,rgba(0,0,0,0.6) 0%,transparent 100%)" title="Master fade in ${fmtSec(masterFadeIn)}"></div>`);
-    }
-    if (masterFadeOut > 0) {
-      overlays.push(`<div class="h-fade-overlay" style="left:${pct(total - masterFadeOut)}%;width:${Math.max(0.3, pct(masterFadeOut))}%;background:linear-gradient(to left,rgba(0,0,0,0.6) 0%,transparent 100%)" title="Master fade out ${fmtSec(masterFadeOut)}"></div>`);
-    }
+    if (masterFadeIn  > 0) overlays.push(`<div class="h-fade-overlay" style="left:0%;width:${Math.max(0.3, pct(masterFadeIn))}%;z-index:999;background:linear-gradient(to right,rgba(0,0,0,0.65) 0%,transparent 100%)" title="Master fade in ${fmtSec(masterFadeIn)}"></div>`);
+    if (masterFadeOut > 0) overlays.push(`<div class="h-fade-overlay" style="left:${pct(total - masterFadeOut)}%;width:${Math.max(0.3, pct(masterFadeOut))}%;z-index:999;background:linear-gradient(to left,rgba(0,0,0,0.65) 0%,transparent 100%)" title="Master fade out ${fmtSec(masterFadeOut)}"></div>`);
 
     return blocks + overlays.join('');
   }
