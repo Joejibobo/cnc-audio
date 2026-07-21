@@ -8,8 +8,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -1013,13 +1013,63 @@ def render(project_id: str):
 
 
 @app.get("/api/projects/{project_id}/audio")
-def get_audio(project_id: str):
+def get_audio(project_id: str, request: Request):
+    """Serve the rendered WAV with full HTTP Range support so browsers can seek."""
     audio_path = _project_dir(project_id) / "renders" / "latest.wav"
     if not audio_path.exists():
         raise HTTPException(status_code=404, detail="No render found. Render the project first.")
-    return FileResponse(
-        str(audio_path),
-        media_type="audio/wav",
+
+    file_size = audio_path.stat().st_size
+    media_type = "audio/wav"
+    base_headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-cache, no-store",
+    }
+
+    range_header = request.headers.get("range")
+    if not range_header:
+        # No Range header — send the whole file (but still advertise range support)
+        return FileResponse(str(audio_path), media_type=media_type, headers=base_headers)
+
+    # Parse "bytes=start-end" (end is optional)
+    m = re.match(r"bytes=(\d+)-(\d*)", range_header)
+    if not m:
+        raise HTTPException(status_code=416, detail="Invalid Range header")
+
+    start = int(m.group(1))
+    end   = int(m.group(2)) if m.group(2) else file_size - 1
+    end   = min(end, file_size - 1)
+
+    if start > end or start >= file_size:
+        raise HTTPException(
+            status_code=416,
+            detail="Range Not Satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
+
+    chunk_length = end - start + 1
+
+    def _iter_file(path: Path, offset: int, length: int):
+        CHUNK = 64 * 1024  # 64 KB
+        with open(path, "rb") as f:
+            f.seek(offset)
+            remaining = length
+            while remaining > 0:
+                data = f.read(min(CHUNK, remaining))
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+    return StreamingResponse(
+        _iter_file(audio_path, start, chunk_length),
+        status_code=206,
+        media_type=media_type,
+        headers={
+            **base_headers,
+            "Content-Range":  f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(chunk_length),
+        },
     )
 
 
