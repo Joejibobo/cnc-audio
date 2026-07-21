@@ -235,8 +235,10 @@
   .tl-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-dim); padding: 40px 20px; }
   .tl-empty .big { font-size: 48px; margin-bottom: 12px; }
   .h-clip {
-    position: absolute; top: 9px; height: 40px; border-radius: 5px;
-    border: 1px solid rgba(0,0,0,0.22); display: flex; align-items: center;
+    position: absolute; top: 9px; height: 40px; border-radius: 0;
+    border-top: 1px solid rgba(0,0,0,0.22); border-bottom: 1px solid rgba(0,0,0,0.22);
+    border-left: none; border-right: none;
+    display: flex; align-items: center;
     padding: 0 8px; color: #080808; font-weight: 700; font-size: 11px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
@@ -1910,7 +1912,36 @@ function renderTimeline(project) {
         }
       }
 
-      return `<div class="h-clip" style="left:${leftPct}%;width:${widthPct}%;background:${bg};z-index:${zIndex}" title="${title}">
+      // Compute which edges are visually "exposed" (have a gap next to them)
+      // so we only add rounded corners where the clip actually starts/ends a gap.
+      const prevEv = idx > 0 ? events[idx - 1] : null;
+      const nextEv = idx < events.length - 1 ? events[idx + 1] : null;
+      const prevEnd = prevEv
+        ? prevEv.position_seconds + Math.max(0.001, prevEv.source_end_seconds - prevEv.source_start_seconds)
+        : null;
+      const thisEnd = ev.position_seconds + audioDur;
+      const nextStart2 = nextEv ? nextEv.position_seconds : null;
+
+      // Left edge is exposed when there's a real gap before this clip
+      // (also true for the very first clip, or when this clip starts after prevEnd)
+      const leftExposed  = !prevEv || (ev.position_seconds > prevEnd + 0.02);
+      // Right edge is exposed when there's a real gap after this clip
+      const rightExposed = !nextEv || (nextStart2 > thisEnd + 0.02);
+      // This clip overlaps the previous (incoming side of crossfade) — left edge is
+      // visible but we keep a slight radius so the gradient entry looks clean
+      const isIncoming = prevEv && (ev.position_seconds < prevEnd - 0.01);
+
+      const R = '5px';
+      const tl = (leftExposed || isIncoming) ? R : '0';
+      const bl = (leftExposed || isIncoming) ? R : '0';
+      const tr = rightExposed ? R : '0';
+      const br = rightExposed ? R : '0';
+      const borderRadius = `${tl} ${tr} ${br} ${bl}`;
+      // Add a left border only on exposed left edges (prevents double-border at joins)
+      const extraBorder = leftExposed ? 'border-left:1px solid rgba(0,0,0,0.22);' : '';
+      const rightBorder = rightExposed ? 'border-right:1px solid rgba(0,0,0,0.22);' : '';
+
+      return `<div class="h-clip" style="left:${leftPct}%;width:${widthPct}%;background:${bg};z-index:${zIndex};border-radius:${borderRadius};${extraBorder}${rightBorder}" title="${title}">
           <span>${displayName}</span><span class="h-clip-meta">${fmtSec(audioDur)}</span>
         </div>`;
     }).join('');
