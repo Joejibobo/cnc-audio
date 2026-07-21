@@ -39,6 +39,8 @@ class RepetitionParams:
     max_per_clip: Optional[int] = None  # None = unlimited
     min_gap_clips: int = 0              # Soft preference
     allow_consecutive: bool = False
+    no_repeat_sections: bool = True     # Enforce non-overlapping source regions
+    repeat_decay: float = 0.0           # [0,1] decay factor per repeat
 
 
 @dataclass
@@ -68,8 +70,8 @@ class GainParams:
 @dataclass
 class SelectionParams:
     # "uniform" | "weighted" | "sequential"
-    distribution: str = "weighted"
-    chaos: float = 0.5  # 0 = most constrained, 1 = most random
+    distribution: str = "uniform"
+    chaos: float = 1.0  # 0 = most constrained, 1 = most random
 
 
 @dataclass
@@ -81,7 +83,7 @@ class Parameters:
     silence: SilenceParams = field(default_factory=SilenceParams)
     gain: GainParams = field(default_factory=GainParams)
     selection: SelectionParams = field(default_factory=SelectionParams)
-    # "trim_last" | "fade_last" | "pad_silence"
+    # "trim_last" | "fade_last" | "pad_silence" | "fill_random_clip" | "extend_last_clip"
     duration_rule: str = "fade_last"
 
 

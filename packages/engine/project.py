@@ -24,10 +24,6 @@ from .models import (
 SCHEMA_VERSION = "1.0.0"
 
 
-# ---------------------------------------------------------------------------
-# Loading
-# ---------------------------------------------------------------------------
-
 def _load_analysis(d: Optional[dict]) -> Optional[AnalysisResult]:
     if d is None:
         return None
@@ -72,6 +68,8 @@ def _load_parameters(d: dict) -> Parameters:
             max_per_clip=rep.get("max_per_clip"),
             min_gap_clips=rep.get("min_gap_clips", 0),
             allow_consecutive=rep.get("allow_consecutive", False),
+            no_repeat_sections=rep.get("no_repeat_sections", True),
+            repeat_decay=rep.get("repeat_decay", 0.0),
         ),
         crossfade=CrossfadeParams(
             enabled=cf.get("enabled", True),
@@ -92,7 +90,7 @@ def _load_parameters(d: dict) -> Parameters:
             random_variation_db=gain.get("random_variation_db", 0.0),
         ),
         selection=SelectionParams(
-            distribution=sel.get("distribution", "weighted"),
+            distribution=sel.get("distribution", "uniform"),
             chaos=sel.get("chaos", 0.5),
         ),
         duration_rule=d.get("duration_rule", "fade_last"),
@@ -152,10 +150,6 @@ def load_project(path: str) -> Project:
     )
 
 
-# ---------------------------------------------------------------------------
-# Saving
-# ---------------------------------------------------------------------------
-
 def _dump_analysis(a: Optional[AnalysisResult]) -> Optional[dict]:
     if a is None:
         return None
@@ -205,6 +199,8 @@ def _dump_parameters(p: Parameters) -> dict:
             "max_per_clip": p.repetition.max_per_clip,
             "min_gap_clips": p.repetition.min_gap_clips,
             "allow_consecutive": p.repetition.allow_consecutive,
+            "no_repeat_sections": p.repetition.no_repeat_sections,
+            "repeat_decay": p.repetition.repeat_decay,
         },
         "crossfade": {
             "enabled": p.crossfade.enabled,
@@ -278,10 +274,6 @@ def save_project(project: Project, path: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(d, f, indent=2, ensure_ascii=False)
 
-
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
 
 def hash_file(path: str) -> str:
     """Return the SHA-256 hash of a file as 'sha256:<hex>'."""

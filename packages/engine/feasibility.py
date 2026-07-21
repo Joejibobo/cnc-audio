@@ -1,8 +1,4 @@
-"""Pre-generation feasibility checks.
-
-Runs before the generator to catch configurations that cannot produce a valid
-track, surfacing specific, actionable error messages instead of silent failures.
-"""
+"""Pre-generation feasibility checks."""
 from dataclasses import dataclass, field
 from typing import List
 
@@ -25,7 +21,6 @@ def check_feasibility(assets: List[Asset], params: Parameters) -> FeasibilityRes
     min_dur = params.clip_duration.min_seconds
     max_dur = params.clip_duration.max_seconds
 
-    # --- Basic parameter validation ---
     if target <= 0:
         errors.append(f"target_duration_seconds must be > 0 (got {target}).")
 
@@ -45,7 +40,6 @@ def check_feasibility(assets: List[Asset], params: Parameters) -> FeasibilityRes
         errors.append("No assets registered. Import at least one audio clip.")
         return FeasibilityResult(feasible=False, warnings=warnings, errors=errors)
 
-    # --- Asset usability ---
     usable = [a for a in assets if a.duration_seconds >= min_dur]
     unusable = [a for a in assets if a.duration_seconds < min_dur]
 
@@ -64,43 +58,28 @@ def check_feasibility(assets: List[Asset], params: Parameters) -> FeasibilityRes
             f"and will never be selected: {', '.join(a.name for a in unusable)}."
         )
 
-    # --- Max fillable content ---
-    max_per = params.repetition.max_per_clip  # None = unlimited
+    max_per = params.repetition.max_per_clip
+    max_fillable = 0.0
+    for asset in usable:
+        asset_cap = asset.duration_seconds
+        if max_per is not None:
+            asset_cap = min(asset_cap, max_per * max_dur)
+        max_fillable += asset_cap
 
-    if max_per is None:
-        # Unlimited repeats: always feasible if at least one usable clip exists
-        max_fillable = float("inf")
-    else:
-        max_fillable = sum(
-            min(a.duration_seconds, max_dur) * max_per for a in usable
-        )
-
-    # Crossfades reduce effective timeline length (clips overlap),
-    # so we need *more* raw clip content to fill the same target duration.
-    # Estimate the overhead conservatively.
     effective_target = target
-    if params.crossfade.enabled and params.crossfade.probability > 0:
-        avg_clip = (min_dur + max_dur) / 2.0
-        est_clips = target / avg_clip
-        avg_xfade = (params.crossfade.min_seconds + params.crossfade.max_seconds) / 2.0
-        effective_target = target + est_clips * avg_xfade * params.crossfade.probability
 
     if max_fillable < effective_target:
         errors.append(
             f"Cannot fill a {target}s track: maximum achievable content is "
-            f"~{max_fillable:.0f}s with {len(usable)} usable clip(s) at "
-            f"max_per_clip={params.repetition.max_per_clip}. "
+            f"~{max_fillable:.0f}s with {len(usable)} usable clip(s). "
             f"Try: increase max_per_clip, add more clips, or reduce target_duration."
         )
-
-    # --- Warn if headroom is tight ---
-    elif max_fillable != float("inf") and max_fillable < effective_target * 1.25:
+    elif max_fillable < effective_target * 1.25:
         warnings.append(
             f"Content headroom is tight (~{max_fillable:.0f}s available for a {target}s track). "
             f"There will be limited variety. Consider adding more clips or increasing max_per_clip."
         )
 
-    # --- Sequential + max_per_clip=1 check ---
     if params.selection.distribution == "sequential" and params.repetition.max_per_clip == 1:
         unique_content = sum(min(a.duration_seconds, max_dur) for a in usable)
         if unique_content < target:
@@ -110,7 +89,6 @@ def check_feasibility(assets: List[Asset], params: Parameters) -> FeasibilityRes
                 f"Either allow repeats or add more clips."
             )
 
-    # --- Repetition gap vs clip count ---
     min_gap = params.repetition.min_gap_clips
     if min_gap > 0 and len(usable) <= min_gap:
         warnings.append(
