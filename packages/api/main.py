@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -67,7 +68,7 @@ def _save(project_id: str, project):
     save_project(project, str(_cnc_path(project_id)))
 
 
-def _project_to_dict(project) -> dict:
+def _project_to_dict(project, project_id: Optional[str] = None) -> dict:
     """Serialize a Project to a JSON-safe dict for API responses."""
     from packages.engine.project import _dump_asset, _dump_parameters, _dump_event
     d = {
@@ -84,12 +85,15 @@ def _project_to_dict(project) -> dict:
             "target_output_lufs": project.export.target_output_lufs,
             "true_peak_limit_dbtp": project.export.true_peak_limit_dbtp,
         },
+        "download_filename": _project_download_filename(project),
     }
     if project.timeline:
         d["timeline"] = {
             "total_duration_seconds": project.timeline.total_duration_seconds,
             "events": [_dump_event(e) for e in project.timeline.events],
         }
+    if project_id is not None:
+        d["has_render"] = (_project_dir(project_id) / "renders" / "latest.wav").exists()
     return d
 
 
@@ -108,6 +112,38 @@ def _download_output_path(project_id: str, project) -> Path:
     return download_dir / f"{_safe_project_filename(project_name)}.wav"
 
 
+def _ensure_project_dirs(project_dir: Path) -> None:
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "assets").mkdir(exist_ok=True)
+    (project_dir / "renders").mkdir(exist_ok=True)
+    (project_dir / "downloads").mkdir(exist_ok=True)
+
+
+def _export_bundle_path(project_id: str, project) -> Path:
+    export_dir = _project_dir(project_id) / "exports"
+    export_dir.mkdir(exist_ok=True)
+    filename = f"{_safe_project_filename(project.project.get('name', 'Untitled Project'))}.cncaudio.zip"
+    return export_dir / filename
+
+
+def _project_download_filename(project) -> str:
+    project_name = project.project.get("name", "Untitled Project")
+    return f"{_safe_project_filename(project_name)}.wav"
+
+
+def _safe_extract_bundle(archive: zipfile.ZipFile, destination: Path) -> None:
+    base = destination.resolve()
+    for member in archive.infolist():
+        member_path = Path(member.filename)
+        if member_path.is_absolute() or ".." in member_path.parts:
+            raise HTTPException(status_code=422, detail="Invalid project bundle path.")
+        try:
+            (base / member_path).resolve().relative_to(base)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid project bundle path.") from exc
+    archive.extractall(destination)
+
+
 # ---------------------------------------------------------------------------
 # Project endpoints
 # ---------------------------------------------------------------------------
@@ -120,20 +156,17 @@ class CreateProjectRequest(BaseModel):
 def create_project(body: CreateProjectRequest):
     project_id = str(uuid.uuid4())
     project_dir = _project_dir(project_id)
-    project_dir.mkdir(parents=True, exist_ok=True)
-    (project_dir / "assets").mkdir(exist_ok=True)
-    (project_dir / "renders").mkdir(exist_ok=True)
-    (project_dir / "downloads").mkdir(exist_ok=True)
+    _ensure_project_dirs(project_dir)
 
     project = new_project(body.name)
     _save(project_id, project)
-    return {"id": project_id, **_project_to_dict(project)}
+    return {"id": project_id, **_project_to_dict(project, project_id)}
 
 
 @app.get("/api/projects/{project_id}")
 def get_project(project_id: str):
     project = _load(project_id)
-    return {"id": project_id, **_project_to_dict(project)}
+    return {"id": project_id, **_project_to_dict(project, project_id)}
 
 
 class ProjectNameRequest(BaseModel):
@@ -147,6 +180,83 @@ def update_project_name(project_id: str, body: ProjectNameRequest):
     project.project["name"] = name
     _save(project_id, project)
     return {"name": name}
+
+
+@app.get("/api/projects/{project_id}/export")
+def export_project(project_id: str):
+    project = _load(project_id)
+    project_dir = _project_dir(project_id)
+    bundle_path = _export_bundle_path(project_id, project)
+
+    with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        project_file = _cnc_path(project_id)
+        if project_file.exists():
+            archive.write(project_file, arcname="project.cnc")
+        for folder_name in ("assets", "renders", "downloads"):
+            folder = project_dir / folder_name
+            if not folder.exists():
+                continue
+            for file_path in folder.rglob("*"):
+                if file_path.is_file():
+                    archive.write(file_path, arcname=str(file_path.relative_to(project_dir)))
+
+    return FileResponse(
+        str(bundle_path),
+        media_type="application/zip",
+        filename=bundle_path.name,
+    )
+
+
+@app.post("/api/projects/import")
+async def import_project_bundle(file: UploadFile = File(...)):
+    project_id = str(uuid.uuid4())
+    project_dir = _project_dir(project_id)
+    _ensure_project_dirs(project_dir)
+    bundle_path = project_dir / "__import_bundle.zip"
+
+    try:
+        with bundle_path.open("wb") as f:
+            f.write(await file.read())
+
+        try:
+            with zipfile.ZipFile(bundle_path, "r") as archive:
+                _safe_extract_bundle(archive, project_dir)
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(status_code=422, detail="Uploaded file is not a valid project bundle.") from exc
+        finally:
+            bundle_path.unlink(missing_ok=True)
+
+        project_file = _cnc_path(project_id)
+        if not project_file.exists():
+            raise HTTPException(status_code=422, detail="Project bundle is missing project.cnc.")
+
+        project = load_project(str(project_file))
+        for asset in project.assets:
+            source_path = project_dir / asset.path
+            if not source_path.exists():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Project bundle is missing asset source '{asset.path}'.",
+                )
+
+            wav_path = project_dir / "assets" / f"{asset.id}.wav"
+            if not wav_path.exists():
+                try:
+                    convert_to_standard_wav(str(source_path), str(wav_path))
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Failed to prepare imported asset '{asset.name}': {exc}",
+                    ) from exc
+
+        _save(project_id, project)
+        return {"id": project_id, **_project_to_dict(project, project_id)}
+    except HTTPException:
+        shutil.rmtree(project_dir, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(project_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Project import failed: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +400,7 @@ def update_parameters(project_id: str, body: ParametersRequest):
         duration_rule=body.duration_rule,
     )
     _save(project_id, project)
-    return _project_to_dict(project)
+    return _project_to_dict(project, project_id)
 
 
 # ---------------------------------------------------------------------------

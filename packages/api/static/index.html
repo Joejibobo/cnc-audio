@@ -127,6 +127,9 @@
   .toggle-slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: 0.2s; }
   .toggle input:checked + .toggle-slider { background: var(--accent); }
   .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+  .section-disabled { opacity: 0.55; }
+  .section-note { font-size: 11px; color: var(--text-dim); margin: -4px 0 10px; }
+  input:disabled, select:disabled, button:disabled { cursor: not-allowed; }
 
   .seed-row { display: flex; gap: 6px; }
   .seed-row input { flex: 1; font-family: monospace; font-size: 12px; }
@@ -215,6 +218,11 @@
 
   /* Repeat options sub-section */
   #repeatOptions { padding-left: 12px; border-left: 2px solid var(--border); margin-top: 8px; }
+
+  @media (max-width: 1200px) {
+    .tl-event { align-items: flex-start; flex-wrap: wrap; }
+    .tl-event-meta { width: 100%; padding-left: 62px; text-align: left; }
+  }
 </style>
 </head>
 <body>
@@ -224,11 +232,15 @@
   <span style="color:var(--border)">|</span>
   <input class="project-name-input" id="projectName" type="text" placeholder="Project name…" value="Untitled Project" oninput="debounceProjectName()">
   <div class="header-actions">
+    <button class="btn btn-secondary btn-sm" onclick="startNewProject()" title="Start a fresh project session" data-tip="Start a fresh project session. Export the current project first if you want a portable backup.">🗂 New Project</button>
+    <button class="btn btn-secondary btn-sm" onclick="openProjectPicker()" title="Open a previously exported project bundle" data-tip="Open a previously exported CNC Audio project bundle and restore its clips, settings, and timeline.">📂 Open Project</button>
+    <button class="btn btn-secondary btn-sm" onclick="exportProjectBundle()" title="Download a portable project bundle" data-tip="Download a portable project bundle containing your project file, imported assets, and saved render files.">📦 Export Project</button>
     <button class="btn btn-secondary btn-sm" onclick="resetSettingsToDefault()" title="Reset all parameters to their defaults" data-tip="Reset all parameters to their defaults">↺ Reset</button>
     <button class="btn btn-secondary btn-sm" onclick="saveSettingsToStorage()" title="Save current settings so they load automatically next time" data-tip="Save current settings so they load automatically next time" style="border-color:var(--accent);color:var(--accent)">💾 Save Settings</button>
-    <span id="statusBadge" style="font-size:12px;color:var(--text-dim)">Starting…</span>
+    <span id="statusBadge" style="font-size:12px;color:var(--text-dim)" data-tip="Project sessions autosave on the server. Use Export Project to create a portable bundle you can reopen later.">Starting…</span>
   </div>
 </header>
+<input type="file" id="projectImportInput" accept=".zip,.cncaudio,.cncaudio.zip,application/zip" style="display:none">
 
 <div class="main">
 
@@ -341,6 +353,7 @@
             <label for="allowRepeats">Allow clip repeats <span class="tip" data-tip="When enabled, clips can be selected more than once. When disabled, each clip plays at most once (max_per_clip = 1).">&#9432;</span></label>
           </div>
           <div id="repeatOptions">
+            <div class="section-note" id="repeatDisabledHint" style="display:none">With repeats off, each clip can appear only once, so the repeat-only controls below are disabled.</div>
             <div class="toggle-row">
               <label class="toggle"><input type="checkbox" id="noRepeatSections" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
               <label for="noRepeatSections">No repeat source sections <span class="tip" data-tip="When enabled, each repeat of a clip must use a different, non-overlapping portion of the source file. Prevents the same audio content from playing twice.">&#9432;</span></label>
@@ -352,20 +365,20 @@
               <input type="range" id="repeatDecay" min="0" max="1" value="0" step="0.05"
                 oninput="el('repeatDecayD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
             </div>
-          </div>
-          <div class="form-row-inline">
-            <div class="form-row">
-              <label>Max Repeats <span class="tip" data-tip="Maximum number of times any single clip can be selected. Leave blank for unlimited. Only applies when Allow Repeats is enabled.">&#9432;</span></label>
-              <input type="number" id="maxPerClip" value="" min="1" max="999" placeholder="∞" oninput="debounceParams()">
+            <div class="form-row-inline">
+              <div class="form-row">
+                <label>Max Repeats <span class="tip" data-tip="Maximum number of times any single clip can be selected. Leave blank for unlimited. Only applies when Allow Repeats is enabled.">&#9432;</span></label>
+                <input type="number" id="maxPerClip" value="" min="1" max="999" placeholder="∞" oninput="debounceParams()">
+              </div>
+              <div class="form-row">
+                <label>Min Gap <span class="tip" data-tip="Minimum number of OTHER clips that must play between two uses of the same clip. A soft preference — relaxed automatically if not enough clips are available.">&#9432;</span></label>
+                <input type="number" id="minGapClips" value="0" min="0" max="50" oninput="debounceParams()">
+              </div>
             </div>
-            <div class="form-row">
-              <label>Min Gap <span class="tip" data-tip="Minimum number of OTHER clips that must play between two uses of the same clip. A soft preference — relaxed automatically if not enough clips are available.">&#9432;</span></label>
-              <input type="number" id="minGapClips" value="0" min="0" max="50" oninput="debounceParams()">
+            <div class="toggle-row">
+              <label class="toggle"><input type="checkbox" id="allowConsecutive" onchange="debounceParams()"><span class="toggle-slider"></span></label>
+              <label for="allowConsecutive">Allow back-to-back repeats <span class="tip" data-tip="When enabled, the same clip can play immediately after itself. When disabled, a different clip must play between any two uses of the same clip.">&#9432;</span></label>
             </div>
-          </div>
-          <div class="toggle-row">
-            <label class="toggle"><input type="checkbox" id="allowConsecutive" onchange="debounceParams()"><span class="toggle-slider"></span></label>
-            <label for="allowConsecutive">Allow back-to-back repeats <span class="tip" data-tip="When enabled, the same clip can play immediately after itself. When disabled, a different clip must play between any two uses of the same clip.">&#9432;</span></label>
           </div>
         </div>
       </div>
@@ -375,30 +388,33 @@
         <div class="panel-header" onclick="togglePanel(this)">🌊 Crossfade <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="toggle-row">
-            <label class="toggle"><input type="checkbox" id="crossfadeEnabled" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
+            <label class="toggle"><input type="checkbox" id="crossfadeEnabled" checked onchange="onCrossfadeToggle()"><span class="toggle-slider"></span></label>
             <label for="crossfadeEnabled">Enable crossfades <span class="tip" data-tip="Blend audio between consecutive clips by overlapping their end/start regions. Smooths transitions. When disabled, clips play back-to-back with no overlap.">&#9432;</span></label>
           </div>
-          <div class="form-row">
-            <label>Probability <span class="range-display" id="xfadeProbD">80%</span>
-              <span class="tip" data-tip="Chance that any given transition between clips uses a crossfade. 100% = always crossfade. 0% = never.">&#9432;</span>
-            </label>
-            <input type="range" id="crossfadeProb" min="0" max="1" value="0.8" step="0.05"
-              oninput="el('xfadeProbD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
-          </div>
-          <div class="form-row-inline">
+          <div id="crossfadeOptions">
+            <div class="section-note" id="crossfadeDisabledHint" style="display:none">Crossfade timing controls are disabled while crossfades are turned off.</div>
             <div class="form-row">
-              <label>Min <span class="range-display" id="xfadeMinD">0.1s</span>
-                <span class="tip" data-tip="Shortest crossfade duration in seconds.">&#9432;</span>
+              <label>Probability <span class="range-display" id="xfadeProbD">80%</span>
+                <span class="tip" data-tip="Chance that any given transition between clips uses a crossfade. 100% = always crossfade. 0% = never.">&#9432;</span>
               </label>
-              <input type="range" id="crossfadeMin" min="0.05" max="5" value="0.1" step="0.05"
-                oninput="el('xfadeMinD').textContent=this.value+'s'; debounceParams()">
+              <input type="range" id="crossfadeProb" min="0" max="1" value="0.8" step="0.05"
+                oninput="el('xfadeProbD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
             </div>
-            <div class="form-row">
-              <label>Max <span class="range-display" id="xfadeMaxD">2.0s</span>
-                <span class="tip" data-tip="Longest crossfade duration in seconds. Actual duration is picked randomly between Min and Max.">&#9432;</span>
-              </label>
-              <input type="range" id="crossfadeMax" min="0.1" max="10" value="2.0" step="0.1"
-                oninput="el('xfadeMaxD').textContent=this.value+'s'; debounceParams()">
+            <div class="form-row-inline">
+              <div class="form-row">
+                <label>Min <span class="range-display" id="xfadeMinD">0.1s</span>
+                  <span class="tip" data-tip="Shortest crossfade duration in seconds.">&#9432;</span>
+                </label>
+                <input type="range" id="crossfadeMin" min="0.05" max="5" value="0.1" step="0.05"
+                  oninput="el('xfadeMinD').textContent=this.value+'s'; debounceParams()">
+              </div>
+              <div class="form-row">
+                <label>Max <span class="range-display" id="xfadeMaxD">2.0s</span>
+                  <span class="tip" data-tip="Longest crossfade duration in seconds. Actual duration is picked randomly between Min and Max.">&#9432;</span>
+                </label>
+                <input type="range" id="crossfadeMax" min="0.1" max="10" value="2.0" step="0.1"
+                  oninput="el('xfadeMaxD').textContent=this.value+'s'; debounceParams()">
+              </div>
             </div>
           </div>
         </div>
@@ -409,24 +425,33 @@
         <div class="panel-header" onclick="togglePanel(this)">🤫 Silence Gaps <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="toggle-row">
-            <label class="toggle"><input type="checkbox" id="silenceEnabled" onchange="debounceParams()"><span class="toggle-slider"></span></label>
-            <label for="silenceEnabled">Insert silence gaps</label>
+            <label class="toggle"><input type="checkbox" id="silenceEnabled" onchange="onSilenceToggle()"><span class="toggle-slider"></span></label>
+            <label for="silenceEnabled">Insert silence gaps <span class="tip" data-tip="Adds random pockets of silence between clips. Useful for more spacious or fragmented timelines.">&#9432;</span></label>
           </div>
-          <div class="form-row">
-            <label>Probability <span class="range-display" id="silProbD">30%</span></label>
-            <input type="range" id="silenceProb" min="0" max="1" value="0.3" step="0.05"
-              oninput="el('silProbD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
-          </div>
-          <div class="form-row-inline">
+          <div id="silenceOptions">
+            <div class="section-note" id="silenceDisabledHint" style="display:none">Silence timing controls are disabled while silence gaps are turned off.</div>
             <div class="form-row">
-              <label>Min <span class="range-display" id="silMinD">0.2s</span></label>
-              <input type="range" id="silenceMin" min="0.1" max="5" value="0.2" step="0.1"
-                oninput="el('silMinD').textContent=this.value+'s'; debounceParams()">
+              <label>Probability <span class="range-display" id="silProbD">30%</span>
+                <span class="tip" data-tip="Chance that a silence gap is inserted after a clip. Higher values make the output feel more sparse.">&#9432;</span>
+              </label>
+              <input type="range" id="silenceProb" min="0" max="1" value="0.3" step="0.05"
+                oninput="el('silProbD').textContent=Math.round(+this.value*100)+'%'; debounceParams()">
             </div>
-            <div class="form-row">
-              <label>Max <span class="range-display" id="silMaxD">2.0s</span></label>
-              <input type="range" id="silenceMax" min="0.1" max="30" value="2.0" step="0.1"
-                oninput="el('silMaxD').textContent=this.value+'s'; debounceParams()">
+            <div class="form-row-inline">
+              <div class="form-row">
+                <label>Min <span class="range-display" id="silMinD">0.2s</span>
+                  <span class="tip" data-tip="Shortest silence gap that can be inserted.">&#9432;</span>
+                </label>
+                <input type="range" id="silenceMin" min="0.1" max="5" value="0.2" step="0.1"
+                  oninput="el('silMinD').textContent=this.value+'s'; debounceParams()">
+              </div>
+              <div class="form-row">
+                <label>Max <span class="range-display" id="silMaxD">2.0s</span>
+                  <span class="tip" data-tip="Longest silence gap that can be inserted. Actual gap length is chosen randomly between Min and Max.">&#9432;</span>
+                </label>
+                <input type="range" id="silenceMax" min="0.1" max="30" value="2.0" step="0.1"
+                  oninput="el('silMaxD').textContent=this.value+'s'; debounceParams()">
+              </div>
             </div>
           </div>
         </div>
@@ -437,16 +462,23 @@
         <div class="panel-header" onclick="togglePanel(this)">🔊 Gain <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="toggle-row">
-            <label class="toggle"><input type="checkbox" id="normalize" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
-            <label for="normalize">Normalize clip loudness</label>
+            <label class="toggle"><input type="checkbox" id="normalize" checked onchange="onNormalizeToggle()"><span class="toggle-slider"></span></label>
+            <label for="normalize">Normalize clip loudness <span class="tip" data-tip="Matches clip loudness toward a shared target so quieter or louder source material feels more even in the final render.">&#9432;</span></label>
+          </div>
+          <div id="normalizeOptions">
+            <div class="section-note" id="normalizeDisabledHint" style="display:none">Target loudness is disabled while normalization is turned off. Random variation still applies.</div>
+            <div class="form-row">
+              <label>Target Loudness <span class="range-display" id="targetLufsD">-18 LUFS</span>
+                <span class="tip" data-tip="Desired integrated loudness for clips when normalization is enabled. Lower values are quieter, higher values are louder.">&#9432;</span>
+              </label>
+              <input type="range" id="targetLufs" min="-40" max="-6" value="-18" step="1"
+                oninput="el('targetLufsD').textContent=this.value+' LUFS'; debounceParams()">
+            </div>
           </div>
           <div class="form-row">
-            <label>Target Loudness <span class="range-display" id="targetLufsD">-18 LUFS</span></label>
-            <input type="range" id="targetLufs" min="-40" max="-6" value="-18" step="1"
-              oninput="el('targetLufsD').textContent=this.value+' LUFS'; debounceParams()">
-          </div>
-          <div class="form-row">
-            <label>Random Variation <span class="range-display" id="gainVarD">±0 dB</span></label>
+            <label>Random Variation <span class="range-display" id="gainVarD">±0 dB</span>
+              <span class="tip" data-tip="Adds a random gain offset to each clip instance. Useful for making repeated clips feel less mechanically identical.">&#9432;</span>
+            </label>
             <input type="range" id="gainVariation" min="0" max="12" value="0" step="0.5"
               oninput="el('gainVarD').textContent='±'+this.value+' dB'; debounceParams()">
           </div>
@@ -458,7 +490,7 @@
         <div class="panel-header" onclick="togglePanel(this)">🌱 Seed <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="form-row">
-            <label>Generation Seed</label>
+            <label>Generation Seed <span class="tip" data-tip="Use the same seed with the same clips and settings to reproduce the same generated timeline. Change it to reroll while keeping the rest of the setup unchanged.">&#9432;</span></label>
             <div class="seed-row">
               <input type="text" id="seedInput" value="my-show-seed" placeholder="Enter seed…" oninput="debounceSeed()">
               <button class="btn btn-secondary btn-icon" onclick="randomizeSeed()" title="Random seed">🎲</button>
@@ -563,6 +595,54 @@ const COLORS = ['#00d4b4','#0099ff','#f5a623','#b44fff','#ff6b6b','#44d62c','#ff
 const clipColors = {};
 let colorIdx = 0;
 
+function updateStatusBadge() {
+  const badge = el('statusBadge');
+  if (!badge) return;
+  badge.textContent = projectId ? `Autosaved · ${projectId.slice(0, 8)}` : 'Starting…';
+}
+
+function resetTimelineUi() {
+  el('tlTitle').textContent = 'Timeline';
+  el('tlMeta').textContent = '';
+  el('tlSeed').textContent = '';
+  el('timelineEvents').innerHTML = `
+    <div class="tl-empty">
+      <div class="big">🎛️</div>
+      <p style="font-size:15px;">Import clips, adjust parameters, then hit <strong>Generate</strong></p>
+    </div>`;
+}
+
+function resetPlayerUi() {
+  const audio = el('audioPlayer');
+  audio.pause();
+  audio.removeAttribute('src');
+  audio.load();
+  el('playBtn').disabled = true;
+  el('playBtn').textContent = '▶';
+  el('playerTitle').textContent = 'No render yet';
+  el('playerSub').textContent = 'Generate and render a timeline to hear your track';
+  el('progressFill').style.width = '0%';
+  el('playerTime').textContent = '0:00 / 0:00';
+  el('downloadBtn').style.display = 'none';
+}
+
+function setControlDisabled(id, disabled) {
+  const control = el(id);
+  if (!control) return;
+  control.disabled = disabled;
+  const manual = el(`${id}Manual`);
+  if (manual) manual.disabled = disabled;
+}
+
+function setSectionState(sectionId, disabled, hintId, hintText) {
+  const section = el(sectionId);
+  if (section) section.classList.toggle('section-disabled', disabled);
+  const hint = hintId ? el(hintId) : null;
+  if (!hint) return;
+  if (hintText) hint.textContent = hintText;
+  hint.style.display = disabled ? '' : 'none';
+}
+
 function updateTargetDurationMax(assets) {
   const total = (assets || []).reduce((sum, a) => sum + (Number(a.duration_seconds) || 0), 0);
   const slider = el('targetDuration');
@@ -659,6 +739,40 @@ function updateClipMaxMax(assets) {
   }
 }
 
+function syncControlStates() {
+  const repeatsDisabled = !el('allowRepeats').checked;
+  setSectionState('repeatOptions', repeatsDisabled, 'repeatDisabledHint', 'With repeats off, each clip can appear only once, so the repeat-only controls below are disabled.');
+  ['noRepeatSections', 'repeatDecay', 'maxPerClip', 'minGapClips', 'allowConsecutive'].forEach(id => setControlDisabled(id, repeatsDisabled));
+
+  const crossfadeDisabled = !el('crossfadeEnabled').checked;
+  setSectionState('crossfadeOptions', crossfadeDisabled, 'crossfadeDisabledHint', 'Crossfade timing controls are disabled while crossfades are turned off.');
+  ['crossfadeProb', 'crossfadeMin', 'crossfadeMax'].forEach(id => setControlDisabled(id, crossfadeDisabled));
+
+  const silenceDisabled = !el('silenceEnabled').checked;
+  setSectionState('silenceOptions', silenceDisabled, 'silenceDisabledHint', 'Silence timing controls are disabled while silence gaps are turned off.');
+  ['silenceProb', 'silenceMin', 'silenceMax'].forEach(id => setControlDisabled(id, silenceDisabled));
+
+  const normalizeDisabled = !el('normalize').checked;
+  setSectionState('normalizeOptions', normalizeDisabled, 'normalizeDisabledHint', 'Target loudness is disabled while normalization is turned off. Random variation still applies.');
+  setControlDisabled('targetLufs', normalizeDisabled);
+}
+
+function getLocalValidationIssues() {
+  const issues = [];
+  const clipMin = parseFloat(el('clipMin').value);
+  const clipMax = parseFloat(el('clipMax').value);
+  const crossfadeMin = parseFloat(el('crossfadeMin').value);
+  const crossfadeMax = parseFloat(el('crossfadeMax').value);
+  const silenceMin = parseFloat(el('silenceMin').value);
+  const silenceMax = parseFloat(el('silenceMax').value);
+
+  if (clipMin > clipMax) issues.push('Clip Min must be less than or equal to Clip Max.');
+  if (el('crossfadeEnabled').checked && crossfadeMin > crossfadeMax) issues.push('Crossfade Min must be less than or equal to Crossfade Max.');
+  if (el('silenceEnabled').checked && silenceMin > silenceMax) issues.push('Silence Min must be less than or equal to Silence Max.');
+
+  return issues;
+}
+
 // ─────────────────────────────────────────────
 // Settings persistence (localStorage)
 // ─────────────────────────────────────────────
@@ -740,9 +854,9 @@ function applySettings(s) {
   setVal('seedInput', s.seedInput);
 
   // Sync dependent UI state
-  onAllowRepeatsChange();
   renderClipList(currentAssets);
   bindManualSliderInputs();
+  syncControlStates();
 }
 
 function saveSettingsToStorage() {
@@ -764,22 +878,85 @@ function loadSavedSettings() {
   } catch(e) { /* corrupted storage — ignore */ }
 }
 
+async function createProjectSession(name) {
+  const res = await api('POST', '/api/projects', {name: name || 'Untitled Project'});
+  projectId = res.id;
+  currentAssets = [];
+  el('projectName').value = res.project?.name || name || 'Untitled Project';
+  updateStatusBadge();
+  resetTimelineUi();
+  resetPlayerUi();
+  await refreshProject();
+  await checkFeasibility();
+  return res;
+}
+
+async function startNewProject() {
+  const hasWork = currentAssets.length > 0 || !!el('tlSeed').textContent;
+  if (hasWork && !window.confirm('Start a new project? Your current session stays autosaved on this machine, but export it first if you want a portable project file.')) {
+    return;
+  }
+  await createProjectSession('Untitled Project');
+  toast('🗂 Started a new project', 'success', 2500);
+}
+
+function openProjectPicker() {
+  el('projectImportInput').click();
+}
+
+function exportProjectBundle() {
+  if (!projectId) return;
+  const link = document.createElement('a');
+  link.href = `/api/projects/${projectId}/export?t=${Date.now()}`;
+  link.download = '';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  toast('📦 Project bundle downloading…', 'success', 2500);
+}
+
+async function importProjectBundle(file) {
+  const tid = toast(`Opening "${file.name}"…`, 'warn', 0);
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch('/api/projects/import', {method: 'POST', body: fd});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || 'Project import failed');
+    projectId = data.id;
+    currentAssets = [];
+    el('projectName').value = data.project?.name || 'Untitled Project';
+    updateStatusBadge();
+    resetTimelineUi();
+    resetPlayerUi();
+    await refreshProject();
+    await checkFeasibility();
+    el(`t${tid}`)?.remove();
+    toast(`📂 Opened "${data.project?.name || 'project'}"`, 'success', 3000);
+  } catch (e) {
+    el(`t${tid}`)?.remove();
+    toast(`❌ Project import failed: ${e.message}`, 'error');
+  }
+}
+
 // ─────────────────────────────────────────────
 // Boot
 // ─────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
-  const res = await api('POST', '/api/projects', {name: 'Untitled Project'});
-  projectId = res.id;
-  el('projectName').value = res.project?.name || 'Untitled Project';
-  el('statusBadge').textContent = `Session: ${projectId.slice(0,8)}`;
   setupDragDrop();
   setupPlayer();
   setupTooltip();
   syncDurationHMS(60);
   bindManualSliderInputs();
   loadSavedSettings();           // restore persisted settings before first saveParams
-  await refreshProject();
-  await checkFeasibility();
+  resetTimelineUi();
+  resetPlayerUi();
+  el('projectImportInput').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    if (file) importProjectBundle(file);
+    e.target.value = '';
+  });
+  await createProjectSession('Untitled Project');
 });
 
 // ─────────────────────────────────────────────
@@ -854,6 +1031,7 @@ async function refreshProject() {
   const p = await api('GET', `/api/projects/${projectId}`);
   currentAssets = p.assets || [];
   el('projectName').value = p.project?.name || el('projectName').value || 'Untitled Project';
+  updateStatusBadge();
   if (p.parameters?.selection?.distribution) {
     el('distribution').value = p.parameters.selection.distribution;
   }
@@ -862,6 +1040,17 @@ async function refreshProject() {
   updateTargetDurationMax(p.assets || []);
   updateClipMaxMax(p.assets || []);
   bindManualSliderInputs();
+  syncControlStates();
+  if (p.has_render) {
+    const dl = el('downloadBtn');
+    dl.href = `/api/projects/${projectId}/download?t=${Date.now()}`;
+    dl.style.display = '';
+    dl.setAttribute('download', p.download_filename || 'cnc-audio.wav');
+    if (!el('audioPlayer').getAttribute('src')) {
+      el('playerTitle').textContent = 'Saved render available';
+      el('playerSub').textContent = 'This project includes a previously rendered WAV. Download it or render again to refresh it.';
+    }
+  }
   if (p.timeline) renderTimeline(p);
   return p;
 }
@@ -902,8 +1091,22 @@ function onDistributionChange() {
 }
 
 function onAllowRepeatsChange() {
-  const allowed = el('allowRepeats').checked;
-  el('repeatOptions').style.display = allowed ? '' : 'none';
+  syncControlStates();
+  debounceParams();
+}
+
+function onCrossfadeToggle() {
+  syncControlStates();
+  debounceParams();
+}
+
+function onSilenceToggle() {
+  syncControlStates();
+  debounceParams();
+}
+
+function onNormalizeToggle() {
+  syncControlStates();
   debounceParams();
 }
 
@@ -932,6 +1135,11 @@ function getWeights() {
 
 async function saveParams() {
   if (!projectId) return;
+  const localIssues = getLocalValidationIssues();
+  if (localIssues.length) {
+    await checkFeasibility();
+    return false;
+  }
   const body = {
     target_duration_seconds: parseFloat(el('targetDuration').value),
     clip_duration_min: parseFloat(el('clipMin').value),
@@ -959,8 +1167,16 @@ async function saveParams() {
     random_variation_db: parseFloat(el('gainVariation').value),
     asset_weights: getWeights(),
   };
-  try { await api('PUT', `/api/projects/${projectId}/parameters`, body); await checkFeasibility(); }
-  catch(e) { /* silent */ }
+  try {
+    await api('PUT', `/api/projects/${projectId}/parameters`, body);
+    await checkFeasibility();
+    return true;
+  } catch(e) {
+    el('feasibilityDisplay').innerHTML = `<div class="feasibility-box feasibility-err">\u274c Could not save current settings<ul><li>${e.detail || e.message}</li></ul></div>`;
+    el('generateBtn').disabled = true;
+    toast('\u274c Failed to save settings: ' + (e.detail || e.message), 'error');
+    return false;
+  }
 }
 
 async function saveSeed() {
@@ -992,13 +1208,21 @@ function randomizeSeed() {
 // ─────────────────────────────────────────────
 async function checkFeasibility() {
   if (!projectId) return;
+  const box = el('feasibilityDisplay');
+  const localIssues = getLocalValidationIssues();
+  if (!currentAssets.length) {
+    box.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:2px 0">Import clips to begin</div>';
+    el('generateBtn').disabled = true;
+    return;
+  }
+  if (localIssues.length) {
+    box.innerHTML = `<div class="feasibility-box feasibility-err">\u274c Fix these settings first<ul>${localIssues.map(issue => `<li>${issue}</li>`).join('')}</ul></div>`;
+    el('generateBtn').disabled = true;
+    return;
+  }
   try {
     const r = await api('GET', `/api/projects/${projectId}/feasibility`);
-    const box = el('feasibilityDisplay');
-    if (!document.querySelectorAll('.clip-item').length) {
-      box.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:2px 0">Import clips to begin</div>';
-      el('generateBtn').disabled = true;
-    } else if (r.feasible && !r.warnings.length) {
+    if (r.feasible && !r.warnings.length) {
       box.innerHTML = '<div class="feasibility-box feasibility-ok">\u2705 Ready to generate</div>';
       el('generateBtn').disabled = false;
     } else if (r.feasible) {
@@ -1008,7 +1232,10 @@ async function checkFeasibility() {
       box.innerHTML = `<div class="feasibility-box feasibility-err">\u274c Cannot generate<ul>${r.errors.map(e=>`<li>${e}</li>`).join('')}</ul></div>`;
       el('generateBtn').disabled = true;
     }
-  } catch(e) { /* silent */ }
+  } catch(e) {
+    box.innerHTML = `<div class="feasibility-box feasibility-err">\u274c Could not check current settings<ul><li>${e.detail || e.message}</li></ul></div>`;
+    el('generateBtn').disabled = true;
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -1018,7 +1245,8 @@ async function doGenerate() {
   const btn = el('generateBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Generating\u2026';
   try {
-    await saveParams();
+    const saved = await saveParams();
+    if (!saved) throw new Error('Fix the highlighted settings first.');
     await saveSeed();
     const res = await api('POST', `/api/projects/${projectId}/generate`);
     const p = await api('GET', `/api/projects/${projectId}`);
