@@ -1,21 +1,27 @@
-# CNC Audio — Analyzer
+# CNC Audio - Analyzer
 
-Optional audio analysis. Enriches asset metadata with BPM, key, loudness, and energy data.
+This package is reserved for deeper audio analysis features.
 
-## Status
+## Current Status
 
-⏳ Phase 6 — planned
+**Planned / not yet active in the main v0.2 workflow.**
 
-## Responsibilities
+Potential analysis features include:
 
-- BPM detection (librosa beat tracker)
-- Key detection (librosa chromagram + key estimation)
-- LUFS measurement (FFmpeg `ebur128` filter)
-- Energy estimation (RMS, normalized to [0, 1])
+- BPM detection
+- key detection
+- loudness analysis
+- energy estimation
+- confidence-scored metadata for smarter generation rules
 
-## Design Notes
+## Intended Role
 
-- All results include a **confidence score** (0–1)
-- The engine only uses analysis data when explicitly enabled AND confidence ≥ threshold
-- Analysis is idempotent — running it twice on the same file produces the same results
-- Not every clip has a meaningful BPM or key — that's fine and expected
+Analysis data can later be used to improve:
+
+- clip matching
+- transition quality
+- dynamic intensity shaping
+- gain normalization decisions
+- future rhythm/key-aware generation
+
+For now, the main app works without requiring this package.

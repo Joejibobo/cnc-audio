@@ -1,23 +1,37 @@
-# CNC Audio — Engine
+# CNC Audio - Engine
 
-The timeline generation engine. Takes assets, parameters, and a seed — produces a validated `.cnc` timeline.
+The engine package generates deterministic timelines from:
 
-## Status
+- imported assets
+- per-layer parameters
+- a seed
 
-⏳ Phase 2 — in development
+It is the core constrained-random arrangement system used by the app.
+
+## Current Status
+
+**Implemented and active.**
 
 ## Responsibilities
 
-- Feasibility validation (can these parameters produce a valid track?)
-- Deterministic, seeded random timeline generation
-- Hard constraint enforcement
-- Soft preference scoring
-- `.cnc` project file serialization/deserialization
+- feasibility validation before generation
+- seeded deterministic clip selection
+- duration-constrained timeline construction
+- repetition rules such as max-per-clip, no-repeat-sections, and min-gap handling
+- selection distributions such as uniform, weighted, and sequential
+- clip-level gain variation
+- timeline and project model definitions
+- `.cnc`-style project serialization helpers
 
-## Key Files
+## Main Files
 
-- `generator.py` — main timeline generation logic
-- `constraints.py` — hard constraint validation
-- `preferences.py` — soft preference scoring
-- `feasibility.py` — pre-generation feasibility checks
-- `models.py` — Python dataclasses mirroring the JSON schema
+- `models.py` - core dataclasses for assets, parameters, events, timelines, and projects
+- `generator.py` - seeded timeline generation logic
+- `feasibility.py` - pre-generation validation and warnings
+- `project.py` - project/timeline serialization helpers
+
+## Notes
+
+- Generation is reproducible from the seed.
+- Feasibility warnings try to explain why a setup has low variety or cannot fill the target duration.
+- The engine is shared by both the browser workflow and project persistence flow.

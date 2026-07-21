@@ -1,25 +1,48 @@
-# CNC Audio — Renderer
+# CNC Audio - Renderer
 
-The audio rendering engine. Takes a validated `.cnc` timeline and renders it to an audio file via FFmpeg.
+The renderer package handles media import preparation and final audio rendering.
 
-## Status
+## Current Status
 
-⏳ Phase 3 — planned
+**Implemented and active.**
 
-## Responsibilities
+## What It Actually Does
 
-- Reading and validating `.cnc` timeline files
-- Verifying source audio files (existence, hash integrity)
-- Building FFmpeg filter graphs for:
-  - Clip trimming (`ss`, `to` flags)
-  - Gain adjustment (`volume` filter)
-  - Fade in/out (`afade` filter)
-  - Crossfading (`acrossfade` filter)
-  - Concatenation (`concat` filter)
-  - Output normalization (`loudnorm` filter)
-- Encoding output in the requested format
+### Import side
+
+`importer.py` uses **FFmpeg / ffprobe** to:
+
+- inspect source files
+- probe durations and media info
+- convert imported audio or video into a standard render-ready WAV
+- extract audio from video files
+
+### Render side
+
+`renderer.py` uses **NumPy + Python's wave module** to:
+
+- load prepared WAV assets
+- trim source sections by sample position
+- apply per-clip gain
+- apply clip fade-ins and fade-outs
+- mix overlapping clips directly in memory
+- apply master fade-in / fade-out
+- optionally normalize the output
+- write the final stereo WAV file
+
+## Main Files
+
+- `importer.py` - FFmpeg-based probing and WAV conversion
+- `renderer.py` - in-memory WAV mixing and output writing
 
 ## Requirements
 
-- FFmpeg must be installed and available on `PATH`
-- `ffprobe` must be available on `PATH`
+- FFmpeg
+- ffprobe
+- NumPy
+
+## Notes
+
+- The current renderer is **not** building a live FFmpeg filtergraph for the full mix.
+- Crossfades work by overlapping already-faded clip segments in the shared sample buffer.
+- Imported source assets are standardized to 44.1 kHz stereo WAV before rendering.

@@ -1,19 +1,32 @@
-# CNC Audio — Frontend
+# CNC Audio - Frontend
 
-React + TypeScript single-page application.
+This directory is currently a **placeholder for a future extracted frontend package**.
 
-## Status
+## Current Status
 
-⏳ Phase 4 — planned
+There is **no standalone React frontend in production right now**.
 
-## Views
+The real shipped UI for v0.2 lives here instead:
 
-- **Clip Library** — import, preview, tag, and weight your audio clips
-- **Parameter Panel** — all generation controls with real-time feasibility feedback
-- **Timeline View** — visualize the generated timeline, lock/unlock events, trigger reroll
-- **Export** — configure output format and render
+```text
+packages/api/static/index.html
+```
 
-## Modes
+That UI currently provides:
 
-- **Studio Mode** — full-featured editing environment
-- **Performance Mode** *(Phase 8)* — simplified view optimized for live use: large controls, preloaded audio, emergency fade-out, autosave
+- clip import and library management
+- separate Songs / Sounds controls
+- feasibility feedback
+- Generate & Render flow
+- in-browser playback and scrubbing
+- DAW-style timeline view with zoom and playhead tracking
+- project import/export helpers
+
+## Why This Folder Exists
+
+It reserves a clean place for a future frontend extraction if the app is later split into:
+
+- API backend
+- dedicated SPA frontend
+
+Until then, treat this directory as a stub rather than an active package.
