@@ -642,8 +642,7 @@
         <button id="viewSettingsBtn" class="view-tab active" onclick="setContentView('settings')">⚙ Settings</button>
         <button id="viewTimelineBtn" class="view-tab" onclick="setContentView('timeline')">▶ Timeline</button>
       </div>
-      <button class="btn btn-secondary" id="generateBtn" onclick="doGenerate()" disabled>⚡ Generate</button>
-      <button class="btn btn-primary" id="renderBtn" onclick="doRender()" disabled>🎧 Render</button>
+      <button class="btn btn-primary" id="generateBtn" onclick="doGenerateAndRender()" disabled>⚡ Generate &amp; Render</button>
     </div>
 
     <!-- Settings view -->
@@ -656,26 +655,33 @@
         <span id="tlMeta"></span>
         <span style="flex:1"></span>
         <span id="tlSeed" style="font-family:monospace;font-size:11px"></span>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:16px">
+          <button class="btn btn-secondary btn-sm" onclick="dawZoomOut()" title="Zoom out" style="padding:2px 8px;font-size:14px;line-height:1">−</button>
+          <span id="dawZoomLabel" style="font-family:monospace;font-size:11px;min-width:28px;text-align:center">1×</span>
+          <button class="btn btn-secondary btn-sm" onclick="dawZoomIn()" title="Zoom in" style="padding:2px 8px;font-size:14px;line-height:1">+</button>
+        </div>
       </div>
       <div id="timelineEmpty" class="tl-empty">
         <div class="big">🎛️</div>
         <p style="font-size:15px;">Hit <strong>Generate</strong> to build the timeline</p>
       </div>
       <div id="dawContainer" class="daw-container" style="display:none">
-        <div class="daw-playhead" id="dawPlayhead"></div>
-        <div class="daw-row">
-          <div class="daw-label"></div>
-          <div class="daw-ruler-wrap" id="dawRuler">
-            <div id="dawRulerTicks"></div>
+        <div id="dawScrollInner" style="position:relative;min-width:100%">
+          <div class="daw-playhead" id="dawPlayhead"></div>
+          <div class="daw-row">
+            <div class="daw-label"></div>
+            <div class="daw-ruler-wrap" id="dawRuler">
+              <div id="dawRulerTicks"></div>
+            </div>
           </div>
-        </div>
-        <div class="daw-row">
-          <div class="daw-label sounds-label">Sounds</div>
-          <div class="daw-track" id="soundsTrack"><div class="h-empty">No sounds</div></div>
-        </div>
-        <div class="daw-row">
-          <div class="daw-label songs-label">Songs</div>
-          <div class="daw-track" id="songsTrack"><div class="h-empty">No songs</div></div>
+          <div class="daw-row">
+            <div class="daw-label sounds-label">Sounds</div>
+            <div class="daw-track" id="soundsTrack"><div class="h-empty">No sounds</div></div>
+          </div>
+          <div class="daw-row">
+            <div class="daw-label songs-label">Songs</div>
+            <div class="daw-track" id="songsTrack"><div class="h-empty">No songs</div></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1600,7 +1606,7 @@ async function refreshProject() {
   if (p.timeline) {
     hasGeneratedTimeline = true;
     renderTimeline(p);
-    el('renderBtn').disabled = false;
+    el('generateBtn').disabled = false;
   } else {
     hasGeneratedTimeline = false;
     resetTimelineUi();
@@ -1818,11 +1824,14 @@ async function checkFeasibility() {
 }
 
 // ─────────────────────────────────────────────
-// Generate
+// Generate & Render (combined)
 // ─────────────────────────────────────────────
-async function doGenerate() {
+async function doGenerateAndRender() {
   const btn = el('generateBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Generating\u2026';
+  btn.disabled = true;
+
+  // Step 1: Generate
+  btn.innerHTML = '<span class="spinner"></span> Generating…';
   try {
     const saved = await saveParams();
     if (!saved) throw new Error('Fix the highlighted settings first.');
@@ -1832,15 +1841,26 @@ async function doGenerate() {
     hasGeneratedTimeline = true;
     renderTimeline(p);
     setContentView('timeline');
-    el('renderBtn').disabled = false;
-    toast(`\u26a1 Generated: ${res.song_clip_count || 0} song clips + ${res.sound_clip_count || 0} sound clips \u00b7 ${fmtSec(res.total_duration_seconds)}`, 'success');
-    if (res.warnings?.length) res.warnings.forEach(w => toast('\u26a0\ufe0f ' + w, 'warn'));
+    toast(`⚡ Generated: ${res.song_clip_count || 0} song clips + ${res.sound_clip_count || 0} sound clips · ${fmtSec(res.total_duration_seconds)}`, 'success');
+    if (res.warnings?.length) res.warnings.forEach(w => toast('⚠️ ' + w, 'warn'));
   } catch(e) {
     const d = e.detail;
-    if (d?.errors) toast('\u274c ' + d.errors[0], 'error');
-    else toast('\u274c Generate failed: ' + (d || e.message), 'error');
+    if (d?.errors) toast('❌ ' + d.errors[0], 'error');
+    else toast('❌ Generate failed: ' + (d || e.message), 'error');
+    btn.innerHTML = '⚡ Generate & Render'; btn.disabled = false;
+    return;
   }
-  btn.innerHTML = '\u26a1 Generate'; btn.disabled = false;
+
+  // Step 2: Render
+  btn.innerHTML = '<span class="spinner"></span> Rendering…';
+  try {
+    const res = await api('POST', `/api/projects/${projectId}/render`);
+    loadAudio(`/api/projects/${projectId}/audio`, res.duration_seconds, res.size_mb);
+  } catch(e) {
+    toast('❌ Render failed: ' + (e.detail || e.message), 'error');
+  }
+
+  btn.innerHTML = '⚡ Generate & Render'; btn.disabled = false;
 }
 
 function renderTimeline(project) {
@@ -1970,21 +1990,31 @@ function renderTimeline(project) {
   el('dawContainer').style.display = '';
   el('timelineEmpty').style.display = 'none';
   el('dawPlayhead').style.left = '72px';
+  dawZoom = 1; applyDawZoom();
 }
-
-// ─────────────────────────────────────────────
 // Render
 // ─────────────────────────────────────────────
-async function doRender() {
-  const btn = el('renderBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Rendering\u2026';
-  try {
-    const res = await api('POST', `/api/projects/${projectId}/render`);
-    loadAudio(`/api/projects/${projectId}/audio`, res.duration_seconds, res.size_mb);
-  } catch(e) {
-    toast('\u274c Render failed: ' + (e.detail || e.message), 'error');
-  }
-  btn.innerHTML = '\ud83c\udfa7 Render'; btn.disabled = false;
+// ─────────────────────────────────────────────
+// Timeline zoom
+// ─────────────────────────────────────────────
+let dawZoom = 1;
+const DAW_ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
+
+function applyDawZoom() {
+  const inner = el('dawScrollInner');
+  if (inner) inner.style.minWidth = (dawZoom * 100) + '%';
+  const lbl = el('dawZoomLabel');
+  if (lbl) lbl.textContent = `${dawZoom}×`;
+}
+
+function dawZoomIn() {
+  const idx = DAW_ZOOM_STEPS.indexOf(dawZoom);
+  if (idx < DAW_ZOOM_STEPS.length - 1) { dawZoom = DAW_ZOOM_STEPS[idx + 1]; applyDawZoom(); }
+}
+
+function dawZoomOut() {
+  const idx = DAW_ZOOM_STEPS.indexOf(dawZoom);
+  if (idx > 0) { dawZoom = DAW_ZOOM_STEPS[idx - 1]; applyDawZoom(); }
 }
 
 // ─────────────────────────────────────────────
