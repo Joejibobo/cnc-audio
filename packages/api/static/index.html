@@ -298,13 +298,16 @@
 
 <header>
   <div class="logo">CNC<span> Audio</span></div>
+  <span id="appVersion" style="font:11px monospace;color:var(--text-dim)">v0.2.1</span>
   <span style="color:var(--border)">|</span>
   <input class="project-name-input" id="projectName" type="text" placeholder="Project name…" value="Untitled Project" oninput="debounceProjectName()">
   <div class="header-actions">
     <button class="btn btn-secondary btn-sm" onclick="startNewProject()" title="Start a fresh project session" data-tip="Start a fresh project session. Your current session stays autosaved on this machine.">🗂 New Project</button>
+    <button class="btn btn-secondary btn-sm" onclick="openProjectPicker()" title="Open a portable project bundle">📂 Open Project</button>
+    <button class="btn btn-secondary btn-sm" onclick="exportProjectBundle()" title="Export the current project and source media">📦 Export Project</button>
     <button class="btn btn-secondary btn-sm" onclick="resetSettingsToDefault()" title="Reset all parameters to their defaults" data-tip="Reset all parameters to their defaults">↺ Reset</button>
-    <button class="btn btn-secondary btn-sm" onclick="saveSettingsToStorage()" title="Save current settings so they load automatically next time" data-tip="Save current settings so they load automatically next time" style="border-color:var(--accent);color:var(--accent)">💾 Save Settings</button>
-    <span id="statusBadge" style="font-size:12px;color:var(--text-dim)" data-tip="Project sessions autosave on the server. Use Export Project to create a portable bundle you can reopen later.">Starting…</span>
+    <button class="btn btn-secondary btn-sm" onclick="saveSettingsToStorage()" title="Remember these settings as defaults for new projects" data-tip="Remember these settings as defaults for new projects" style="border-color:var(--accent);color:var(--accent)">💾 Save Defaults</button>
+    <span id="statusBadge" style="font-size:12px;color:var(--text-dim)" data-tip="The current project resumes in this browser. Export a portable backup before moving or clearing browser data.">Starting…</span>
   </div>
 </header>
 <input type="file" id="projectImportInput" accept=".zip,.cncaudio,.cncaudio.zip,application/zip" style="display:none">
@@ -330,7 +333,7 @@
 
     <!-- Upload zone -->
     <div id="libraryRegion">
-      <div id="uploadZone" class="upload-zone" onclick="document.getElementById('fileInput').click()">
+      <div id="uploadZone" class="upload-zone" role="button" tabindex="0" aria-label="Import audio or video files" onclick="document.getElementById('fileInput').click()">
         <div class="icon" id="uploadIcon">📂</div>
         <p id="uploadText"><strong>Click or drag &amp; drop</strong><br>
         Audio: MP3, WAV, FLAC, AAC, OGG<br>
@@ -395,10 +398,10 @@
                 oninput="el('renderGainD').textContent=(+this.value>=0?'+':'')+Number(this.value).toFixed(1)+' dB'; debounceParams()">
             </div>
             <div class="form-row">
-              <label>Output Normalize</label>
+              <label>Output Peak Normalize</label>
               <div class="toggle-row" style="margin-top:6px">
                 <label class="toggle"><input type="checkbox" id="normalizeOutput" checked onchange="debounceParams()"><span class="toggle-slider"></span></label>
-                <label for="normalizeOutput">Normalize final render</label>
+                <label for="normalizeOutput">Normalize sample peak to -1 dBFS</label>
               </div>
             </div>
           </div>
@@ -589,11 +592,11 @@
         <div class="panel-header" onclick="togglePanel(this)">🔊 Gain <span class="chevron">▼</span></div>
         <div class="panel-body">
           <div class="toggle-row">
-            <label class="toggle"><input type="checkbox" id="normalize" checked onchange="onNormalizeToggle()"><span class="toggle-slider"></span></label>
-            <label for="normalize">Normalize clip loudness <span class="tip" data-tip="Matches clip loudness toward a shared target so quieter or louder source material feels more even in the final render.">&#9432;</span></label>
+            <label class="toggle"><input type="checkbox" id="normalize" onchange="onNormalizeToggle()"><span class="toggle-slider"></span></label>
+            <label for="normalize">Normalize clips with existing LUFS metadata <span class="tip" data-tip="Only affects projects that already contain LUFS analysis metadata. Media import does not perform loudness analysis yet.">&#9432;</span></label>
           </div>
           <div id="normalizeOptions">
-            <div class="section-note" id="normalizeDisabledHint" style="display:none">Target loudness is disabled while normalization is turned off. Random variation still applies.</div>
+            <div class="section-note" id="normalizeDisabledHint" style="display:none">LUFS target is disabled. Random variation still applies.</div>
             <div class="form-row">
               <label>Target Loudness <span class="range-display" id="targetLufsD">-18 LUFS</span>
                 <span class="tip" data-tip="Desired integrated loudness for clips when normalization is enabled. Lower values are quieter, higher values are louder.">&#9432;</span>
@@ -635,7 +638,7 @@
 
     <!-- Actions bar -->
     <div class="actions-bar">
-      <div id="feasibilityDisplay" style="flex:1;min-width:0">
+      <div id="feasibilityDisplay" role="status" aria-live="polite" style="flex:1;min-width:0">
         <div class="feasibility-box" style="background:transparent;border:none;color:var(--text-dim);font-size:12px;">Starting…</div>
       </div>
       <div class="view-tabs">
@@ -664,7 +667,7 @@
       </div>
       <div id="timelineEmpty" class="tl-empty">
         <div class="big">🎛️</div>
-        <p style="font-size:15px;">Hit <strong>Generate</strong> to build the timeline</p>
+        <p style="font-size:15px;">Hit <strong>Generate &amp; Render</strong> to build the timeline</p>
       </div>
       <div id="dawContainer" class="daw-container" style="display:none">
         <div id="dawScrollInner" style="position:relative;min-width:100%">
@@ -694,13 +697,13 @@
       <span class="player-time" id="playerTime">0:00 / 0:00</span>
       <div style="flex:1"></div>
       <a id="downloadBtn" style="display:none" class="btn btn-secondary btn-sm" download="cnc-audio.wav">⬇ WAV</a>
-      <button class="btn btn-secondary btn-sm" onclick="toggleDebugPanel()" title="Toggle seek debug log" style="font-family:monospace;font-size:11px">🐛 Debug</button>
+      <button id="debugToggle" class="btn btn-secondary btn-sm" onclick="toggleDebugPanel()" title="Toggle seek debug log" style="display:none;font-family:monospace;font-size:11px">🐛 Debug</button>
     </div>
 
   </div><!-- /content -->
 </div>
 
-<div class="toast-container" id="toastContainer"></div>
+<div class="toast-container" id="toastContainer" role="status" aria-live="polite"></div>
 <div id="floatTooltip"></div>
 
 <!-- ── Debug overlay ─────────────────────────────────────────── -->
@@ -730,6 +733,7 @@
 let _dbgEnabled = false;
 let _dbgTab = 'all';  // 'all' | 'audio' | 'net' | 'err'
 const _dbgBuf = [];   // { ts, cat, color, text }
+const DEBUG_MODE = new URLSearchParams(window.location.search).get('debug') === '1';
 
 function dbgSetTab(tab) {
   _dbgTab = tab;
@@ -747,6 +751,7 @@ function dbgSetTab(tab) {
 function _dbgTs() { return new Date().toISOString().slice(11, 23); }
 
 function _dbgAppend(cat, color, text) {
+  if (!DEBUG_MODE) return;
   _dbgBuf.push({ ts: _dbgTs(), cat, color, text });
   if (_dbgBuf.length > 2000) _dbgBuf.shift();
   if (_dbgEnabled) _dbgFlushLine(_dbgBuf[_dbgBuf.length - 1]);
@@ -816,6 +821,7 @@ function dbgDumpClips() {
 }
 
 function toggleDebugPanel() {
+  if (!DEBUG_MODE) return;
   const p = document.getElementById('debugPanel');
   if (!p) return;
   _dbgEnabled = !_dbgEnabled;
@@ -840,6 +846,7 @@ function dbg(label, extra) {
 
 // ── Network monkey-patch ────────────────────────────────────────
 (function patchFetch() {
+  if (!DEBUG_MODE) return;
   const _fetch = window.fetch;
   window.fetch = async function(...args) {
     const url  = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '?');
@@ -877,6 +884,31 @@ function dbgUpload(label, extra) {
 // Helpers
 // ─────────────────────────────────────────────
 const el = id => document.getElementById(id);
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  })[ch]);
+}
+function formatError(value) {
+  if (typeof value === 'string') return value;
+  try { return JSON.stringify(value); } catch (_) { return String(value || 'Unknown error'); }
+}
+function renderFeasibility(kind, title, messages = []) {
+  const box = el('feasibilityDisplay');
+  const content = document.createElement('div');
+  content.className = kind ? `feasibility-box feasibility-${kind}` : 'feasibility-box';
+  content.textContent = title;
+  if (messages.length) {
+    const list = document.createElement('ul');
+    messages.forEach(message => {
+      const item = document.createElement('li');
+      item.textContent = formatError(message);
+      list.appendChild(item);
+    });
+    content.appendChild(list);
+  }
+  box.replaceChildren(content);
+}
 function fmtSec(s) {
   if (!isFinite(s) || s == null) return '--';
   const m = Math.floor(s / 60), sec = (s % 60).toFixed(1);
@@ -911,6 +943,7 @@ let projectNameTimer = null;
 let activeLayer = 'songs';
 let lastLibraryLayer = 'songs';
 let hasGeneratedTimeline = false;
+let lastSavedSeed = 'default';
 let contentView = 'settings';
 let currentAssetsByLayer = { songs: [], sounds: [] };
 let isScrubbing = false;     // true while user is dragging the playhead
@@ -1056,21 +1089,10 @@ function setSectionState(sectionId, disabled, hintId, hintText) {
 }
 
 function updateTargetDurationMax(assets) {
-  const total = (assets || []).reduce((sum, a) => sum + (Number(a.duration_seconds) || 0), 0);
   const slider = el('targetDuration');
   if (!slider) return;
   slider.min = "1";
-  if (assets && assets.length > 0) {
-    const maxValue = Math.max(1, Math.floor(total));
-    slider.max = String(maxValue);
-    if (Number(slider.value) > maxValue) {
-      slider.value = String(maxValue);
-      el('durationDisplay').textContent = fmtSec(maxValue);
-      debounceParams();
-    }
-  } else {
-    slider.max = "3600";
-  }
+  slider.max = "3600";
 
   const manual = el(`${slider.id}Manual`);
   if (manual) {
@@ -1189,6 +1211,7 @@ function getLocalValidationIssues() {
 // Settings persistence (localStorage)
 // ─────────────────────────────────────────────
 const SETTINGS_KEY = 'cnc_audio_settings';
+const CURRENT_PROJECT_KEY = 'cnc_audio_current_project';
 
 const SETTINGS_DEFAULTS = {
   clipMin: '2', clipMax: '8', durationRule: 'fade_last',
@@ -1196,7 +1219,7 @@ const SETTINGS_DEFAULTS = {
   repeatDecay: '0', maxPerClip: '', minGapClips: '0', allowConsecutive: false,
   crossfadeEnabled: true, crossfadeProb: '0.8', crossfadeMin: '0.1', crossfadeMax: '2.0',
   silenceEnabled: false, silenceProb: '0.3', silenceMin: '0.2', silenceMax: '2.0',
-  normalize: true, targetLufs: '-18', gainVariation: '0',
+  normalize: false, targetLufs: '-18', gainVariation: '0',
 };
 
 const RENDER_DEFAULTS = {
@@ -1401,7 +1424,7 @@ function loadSavedSettings() {
 
 async function createProjectSession(name) {
   const res = await api('POST', '/api/projects', {name: name || 'Untitled Project'});
-  projectId = res.id;
+  setCurrentProject(res.id);
   currentAssetsByLayer = { songs: [], sounds: [] };
   el('projectName').value = res.project?.name || name || 'Untitled Project';
   updateStatusBadge();
@@ -1412,9 +1435,35 @@ async function createProjectSession(name) {
   return res;
 }
 
+function setCurrentProject(id) {
+  projectId = id || null;
+  if (projectId) localStorage.setItem(CURRENT_PROJECT_KEY, projectId);
+  else localStorage.removeItem(CURRENT_PROJECT_KEY);
+  updateStatusBadge();
+}
+
+async function resumeCurrentProject() {
+  const savedId = localStorage.getItem(CURRENT_PROJECT_KEY);
+  if (!savedId) return false;
+  try {
+    projectId = savedId;
+    currentAssetsByLayer = { songs: [], sounds: [] };
+    resetTimelineUi();
+    resetPlayerUi();
+    await refreshProject();
+    await checkFeasibility();
+    updateStatusBadge();
+    toast('↩ Resumed your last local project', 'success', 2500);
+    return true;
+  } catch (_) {
+    setCurrentProject(null);
+    return false;
+  }
+}
+
 async function startNewProject() {
   const hasWork = (currentAssetsByLayer.songs || []).length > 0 || (currentAssetsByLayer.sounds || []).length > 0 || !!el('tlSeed').textContent;
-  if (hasWork && !window.confirm('Start a new project? Your current session stays autosaved on this machine, but export it first if you want a portable project file.')) {
+  if (hasWork && !window.confirm('Start a new project? Export the current project first if you want a portable backup.')) {
     return;
   }
   await createProjectSession('Untitled Project');
@@ -1444,7 +1493,7 @@ async function importProjectBundle(file) {
     const r = await fetch('/api/projects/import', {method: 'POST', body: fd});
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.detail || 'Project import failed');
-    projectId = data.id;
+    setCurrentProject(data.id);
     currentAssetsByLayer = { songs: [], sounds: [] };
     el('projectName').value = data.project?.name || 'Untitled Project';
     updateStatusBadge();
@@ -1467,6 +1516,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupDragDrop();
   setupPlayer();
   setupTooltip();
+  if (DEBUG_MODE) el('debugToggle').style.display = '';
+  fetch('/api/version').then(r => r.json()).then(data => {
+    if (data.version) el('appVersion').textContent = `v${data.version}`;
+  }).catch(() => {});
   const paramsScroll = document.querySelector('.params-scroll');
   if (paramsScroll && el('settingsView')) {
     el('settingsView').appendChild(paramsScroll);
@@ -1480,11 +1533,30 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (file) importProjectBundle(file);
     e.target.value = '';
   });
-  await createProjectSession('Untitled Project');
-  // Load saved settings AFTER refreshProject so they aren't overwritten by API defaults.
-  // Then immediately push them to the API so the project matches the user's saved state.
-  loadSavedSettings();
-  await saveParams();
+  el('uploadZone').addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      el('fileInput').click();
+    }
+  });
+  document.querySelectorAll('.panel-header[onclick]').forEach(header => {
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'true');
+    header.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        togglePanel(header);
+      }
+    });
+  });
+  if (!(await resumeCurrentProject())) {
+    await createProjectSession('Untitled Project');
+    // New projects inherit explicitly saved defaults. Resumed/imported projects
+    // keep their own stored settings.
+    loadSavedSettings();
+    await saveParams();
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -1562,7 +1634,7 @@ async function uploadFiles(files) {
 async function deleteAsset(assetId, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
-    await api('DELETE', `/api/projects/${projectId}/assets/${assetId}`);
+    await api('DELETE', `/api/projects/${projectId}/assets/${encodeURIComponent(assetId)}`);
     await refreshProject();
     await checkFeasibility();
   } catch(err) {
@@ -1603,6 +1675,8 @@ async function refreshProject() {
   const p = await api('GET', `/api/projects/${projectId}`);
   currentAssetsByLayer.songs = p.song_assets || p.assets || [];
   currentAssetsByLayer.sounds = p.sound_assets || [];
+  lastSavedSeed = p.seed || 'default';
+  el('seedInput').value = lastSavedSeed;
   el('projectName').value = p.project?.name || el('projectName').value || 'Untitled Project';
   updateStatusBadge();
   layerSettings.songs = mapApiParamsToLayerSettings(p.song_parameters || p.parameters);
@@ -1656,31 +1730,75 @@ async function refreshProject() {
 
 function renderClipList(assets) {
   const weightedMode = el('distribution').value === 'weighted';
+  const list = el('clipList');
   el('clipCount').textContent = assets.length ? `(${assets.length})` : '';
+  list.replaceChildren();
   if (!assets.length) {
-    el('clipList').innerHTML = `<div id="clipEmpty" style="text-align:center;color:var(--text-dim);padding:20px 8px;font-size:12px;">Import ${getLayerLabel(activeLayer).toLowerCase()} to begin</div>`;
+    const empty = document.createElement('div');
+    empty.id = 'clipEmpty';
+    empty.style.cssText = 'text-align:center;color:var(--text-dim);padding:20px 8px;font-size:12px;';
+    empty.textContent = `Import ${getLayerLabel(activeLayer).toLowerCase()} to begin`;
+    list.appendChild(empty);
     return;
   }
-  el('clipList').innerHTML = assets.map(a => {
+  assets.forEach(a => {
     if (!clipColors[a.id]) clipColors[a.id] = COLORS[colorIdx++ % COLORS.length];
-    const c = clipColors[a.id];
-    return `
-    <div class="clip-item">
-      <div class="clip-item-header">
-        <span class="clip-icon" style="color:${c}">◼</span>
-        <span class="clip-name" title="${a.name}">${a.name}</span>
-        <span class="clip-duration">${fmtSec(a.duration_seconds)}</span>
-        <button class="clip-delete" onclick="deleteAsset('${a.id}', this)">\u2715</button>
-      </div>
-      ${weightedMode ? `<div class="clip-weight-row">
-        <label>Weight</label>
-        <input type="range" id="wr${a.id}" min="0.1" max="5" step="0.1" value="${a.weight}"
-          oninput="el('wv${a.id}').textContent=parseFloat(this.value).toFixed(1)+'\u00d7'; el('w${a.id}').value=this.value; debounceParams()">
-        <span class="clip-weight-val" id="wv${a.id}">${parseFloat(a.weight).toFixed(1)}\u00d7</span>
-        <input type="hidden" id="w${a.id}" value="${a.weight}">
-      </div>` : ''}
-    </div>`;
-  }).join('');
+    const item = document.createElement('div');
+    item.className = 'clip-item';
+    const header = document.createElement('div');
+    header.className = 'clip-item-header';
+
+    const icon = document.createElement('span');
+    icon.className = 'clip-icon';
+    icon.style.color = clipColors[a.id];
+    icon.textContent = '◼';
+
+    const name = document.createElement('span');
+    name.className = 'clip-name';
+    name.title = String(a.name || 'Untitled Clip');
+    name.textContent = String(a.name || 'Untitled Clip');
+
+    const duration = document.createElement('span');
+    duration.className = 'clip-duration';
+    duration.textContent = fmtSec(a.duration_seconds);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'clip-delete';
+    remove.setAttribute('aria-label', `Remove ${name.textContent}`);
+    remove.textContent = '\u2715';
+    remove.addEventListener('click', () => deleteAsset(a.id, remove));
+    header.append(icon, name, duration, remove);
+    item.appendChild(header);
+
+    if (weightedMode) {
+      const row = document.createElement('div');
+      row.className = 'clip-weight-row';
+      const label = document.createElement('label');
+      label.textContent = 'Weight';
+      const range = document.createElement('input');
+      range.type = 'range';
+      range.id = `weight_${a.id}`;
+      range.className = 'clip-weight-input';
+      range.dataset.assetId = a.id;
+      range.min = '0.1';
+      range.max = '5';
+      range.step = '0.1';
+      const initialWeight = Number.isFinite(Number(a.weight)) ? Number(a.weight) : 1;
+      range.value = String(Math.max(0.1, Math.min(5, initialWeight)));
+      label.htmlFor = range.id;
+      const value = document.createElement('span');
+      value.className = 'clip-weight-val';
+      value.textContent = `${Number(range.value).toFixed(1)}\u00d7`;
+      range.addEventListener('input', () => {
+        value.textContent = `${Number(range.value).toFixed(1)}\u00d7`;
+        debounceParams();
+      });
+      row.append(label, range, value);
+      item.appendChild(row);
+    }
+    list.appendChild(item);
+  });
 }
 
 function onDistributionChange() {
@@ -1732,9 +1850,10 @@ function getWeights() {
     return {};
   }
   const w = {};
-  document.querySelectorAll('[id^="w"]').forEach(inp => {
-    const id = inp.id.slice(1);
-    if (id) w[id] = parseFloat(inp.value);
+  document.querySelectorAll('.clip-weight-input[data-asset-id]').forEach(input => {
+    const id = input.dataset.assetId;
+    const weight = Number(input.value);
+    if (id && Number.isFinite(weight)) w[id] = weight;
   });
   return w;
 }
@@ -1793,11 +1912,15 @@ async function saveParams() {
     sound_parameters: layerBodyFromSettings(sounds, activeLayer === 'sounds' ? getWeights() : undefined),
   };
   try {
-    await api('PUT', `/api/projects/${projectId}/parameters`, body);
+    const savedProject = await api('PUT', `/api/projects/${projectId}/parameters`, body);
+    if (hasGeneratedTimeline && !savedProject.timeline) {
+      resetTimelineUi();
+      resetPlayerUi();
+    }
     await checkFeasibility();
     return true;
   } catch(e) {
-    el('feasibilityDisplay').innerHTML = `<div class="feasibility-box feasibility-err">\u274c Could not save current settings<ul><li>${e.detail || e.message}</li></ul></div>`;
+    renderFeasibility('err', '\u274c Could not save current settings', [e.detail || e.message]);
     el('generateBtn').disabled = true;
     toast('\u274c Failed to save settings: ' + (e.detail || e.message), 'error');
     return false;
@@ -1808,7 +1931,12 @@ async function saveSeed() {
   if (!projectId) return;
   const seed = el('seedInput').value.trim() || 'default';
   await api('PUT', `/api/projects/${projectId}/seed`, {seed});
-  el('tlSeed').textContent = `seed: ${seed}`;
+  if (seed !== lastSavedSeed && hasGeneratedTimeline) {
+    resetTimelineUi();
+    resetPlayerUi();
+  }
+  lastSavedSeed = seed;
+  if (hasGeneratedTimeline) el('tlSeed').textContent = `seed: ${seed}`;
 }
 
 async function saveProjectName() {
@@ -1836,29 +1964,29 @@ async function checkFeasibility() {
   const box = el('feasibilityDisplay');
   const localIssues = getLocalValidationIssues();
   if (!(currentAssetsByLayer.songs || []).length) {
-    box.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:2px 0">Import at least one song clip to generate a base track</div>';
+    renderFeasibility('', 'Import at least one song clip to generate a base track');
     el('generateBtn').disabled = true;
     return;
   }
   if (localIssues.length) {
-    box.innerHTML = `<div class="feasibility-box feasibility-err">\u274c Fix these settings first<ul>${localIssues.map(issue => `<li>${issue}</li>`).join('')}</ul></div>`;
+    renderFeasibility('err', '\u274c Fix these settings first', localIssues);
     el('generateBtn').disabled = true;
     return;
   }
   try {
     const r = await api('GET', `/api/projects/${projectId}/feasibility`);
     if (r.feasible && !r.warnings.length) {
-      box.innerHTML = '<div class="feasibility-box feasibility-ok">\u2705 Ready to generate</div>';
+      renderFeasibility('ok', '\u2705 Ready to generate');
       el('generateBtn').disabled = false;
     } else if (r.feasible) {
-      box.innerHTML = `<div class="feasibility-box feasibility-warn">\u26a0\ufe0f Ready (warnings)<ul>${r.warnings.map(w=>`<li>${w}</li>`).join('')}</ul></div>`;
+      renderFeasibility('warn', '\u26a0\ufe0f Ready (warnings)', r.warnings);
       el('generateBtn').disabled = false;
     } else {
-      box.innerHTML = `<div class="feasibility-box feasibility-err">\u274c Cannot generate<ul>${r.errors.map(e=>`<li>${e}</li>`).join('')}</ul></div>`;
+      renderFeasibility('err', '\u274c Cannot generate', r.errors);
       el('generateBtn').disabled = true;
     }
   } catch(e) {
-    box.innerHTML = `<div class="feasibility-box feasibility-err">\u274c Could not check current settings<ul><li>${e.detail || e.message}</li></ul></div>`;
+    renderFeasibility('err', '\u274c Could not check current settings', [e.detail || e.message]);
     el('generateBtn').disabled = true;
   }
 }
@@ -2022,8 +2150,8 @@ function renderTimeline(project) {
         `br="${borderRadius}" leftExp=${leftExposed} rightExp=${rightExposed} incoming=${isIncoming}`
       );
 
-      return `<div class="h-clip" style="left:${leftPct}%;width:${widthStyle};background:${bg};z-index:${zIndex};border-radius:${borderRadius}" title="${title}">
-          <span class="h-clip-name">${clipName}</span>
+      return `<div class="h-clip" style="left:${leftPct}%;width:${widthStyle};background:${bg};z-index:${zIndex};border-radius:${borderRadius}" title="${escapeHtml(title)}">
+          <span class="h-clip-name">${escapeHtml(clipName)}</span>
         </div>`;
     }).join('');
 
@@ -2315,6 +2443,7 @@ function togglePanel(header) {
   const innerBody = header.parentElement.querySelector('.panel-body') || header.closest('.panel').querySelector('.panel-body');
   if (!innerBody) return;
   const hidden = innerBody.classList.toggle('hidden');
+  header.setAttribute('aria-expanded', String(!hidden));
   header.querySelector('.chevron').style.transform = hidden ? 'rotate(-90deg)' : '';
 }
 </script>

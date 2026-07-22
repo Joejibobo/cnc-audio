@@ -6,7 +6,7 @@ It takes a library of source clips, applies user-defined rules, and generates a 
 
 ## Current Status
 
-**v0.2** is a usable MVP.
+**v0.2.1** is a usable local-first MVP.
 
 You can currently:
 - import audio and video files
@@ -26,15 +26,14 @@ Every output track is:
 - **Layered** - songs and sounds can be controlled independently, then mixed together
 - **Non-destructive** - source media is preserved; edits live in project/timeline data
 
-## v0.2 Highlights
+## v0.2.1 Highlights
 
-- smoother crossfade visuals and cleaner clip-to-clip blending
-- timeline zoom controls with reset and playhead-follow behavior
-- merged **Generate & Render** workflow
-- improved playhead, overlay, and fade behavior in the DAW view
-- more reliable clip color assignment during early generation
-- safer asset deletion during concurrent upload/delete activity
-- multiple seam, overlap, and layering fixes across the timeline UI
+- resume the most recent autosaved project in the same browser
+- open and export portable project bundles from the main toolbar
+- safer uploads and bundle imports with strict path, size, hash, and schema checks
+- weighted-selection, crossfade/silence, no-repeat, and feasibility fixes
+- atomic project/render publication and stable downloads after project renames
+- output controls that accurately describe the current renderer
 
 ## How to Run
 
@@ -55,9 +54,16 @@ brew install ffmpeg
 
 ### Setup
 
-```bash
-pip install -r requirements.txt
+Create and activate a virtual environment first, then install dependencies:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
+
+On macOS/Linux, use `source .venv/bin/activate` in place of the PowerShell
+activation command.
 
 ### Start the app
 
@@ -66,6 +72,10 @@ python start.py
 ```
 
 Then open **http://localhost:8000** in your browser.
+
+The launcher listens on `127.0.0.1` only. Project autosaves are stored under
+`projects/` on that machine; export a project bundle when you need a portable
+backup or want to move to another computer.
 
 ## Typical Workflow
 
@@ -83,6 +93,19 @@ Then open **http://localhost:8000** in your browser.
 - Video: MP4, MOV, and other FFmpeg-supported formats with extractable audio
 
 Imported media is converted to a standard WAV format internally for rendering consistency.
+
+The v0.2.1 renderer outputs 44.1 kHz stereo 16-bit PCM WAV. Optional output
+normalization is sample-peak based with a -1 dBFS ceiling; integrated LUFS and
+oversampled true-peak analysis are not implemented yet.
+
+## Development
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest
+```
+
+Tests run in GitHub Actions on Python 3.10 and 3.13.
 
 ## Architecture
 
@@ -127,4 +150,4 @@ tests/        automated tests
 
 ## License
 
-MIT
+[MIT](LICENSE)

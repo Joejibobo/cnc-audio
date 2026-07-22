@@ -332,6 +332,7 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
     sequential_idx = [0]
     last_clip_id: Optional[str] = None
     last_clip_event: Optional[ClipEvent] = None
+    can_crossfade_from_last_clip = False
     assets_by_id = {a.id: a for a in assets}
     used_ranges_by_asset: Dict[str, List[Tuple[float, float]]] = {}
 
@@ -388,6 +389,7 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
         fade_in = 0.0
         if (
             last_clip_event is not None
+            and can_crossfade_from_last_clip
             and params.crossfade.enabled
             and rng.random() < params.crossfade.probability
         ):
@@ -409,9 +411,16 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
                     old_se = last_clip_event.source_end_seconds
                     # How much contiguous source is available right after old_se?
                     if params.repetition.no_repeat_sections:
+                        reserved_ranges = list(used_ranges_by_asset.get(prev_asset.id, []))
+                        # The incoming region has already been selected but is not
+                        # registered until the event is committed below. Reserve it
+                        # while extending the outgoing clip so same-asset crossfades
+                        # cannot consume the incoming source interval.
+                        if prev_asset.id == clip.id:
+                            reserved_ranges.append((source_start, source_end))
                         windows = _available_windows(
                             prev_asset.duration_seconds,
-                            used_ranges_by_asset.get(prev_asset.id, []),
+                            reserved_ranges,
                         )
                         avail = 0.0
                         for ws, we in windows:
@@ -457,6 +466,7 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
         )
         events.append(event)
         last_clip_event = event
+        can_crossfade_from_last_clip = True
         position += dur
         _register_used_range(used_ranges_by_asset, clip.id, source_start, source_end)
 
@@ -482,6 +492,9 @@ def generate_timeline(assets: List[Asset], params: Parameters, seed: str) -> Tim
                     duration_seconds=round(sil_dur, 4),
                 ))
                 position += sil_dur
+                # A transition is either a silence gap or a crossfade. Do not
+                # crossfade the next clip back across the explicit gap.
+                can_crossfade_from_last_clip = False
 
     # Fill any remaining gap (e.g. from crossfade math)
 

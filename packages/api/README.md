@@ -11,7 +11,7 @@ At the moment, the shipped frontend lives in `packages/api/static/index.html`.
 
 ## Current Status
 
-**Active and in use in v0.2.**
+**Active and in use in v0.2.1.**
 
 Start it from the repository root with:
 
@@ -22,7 +22,7 @@ python start.py
 Or directly:
 
 ```bash
-python -m uvicorn packages.api.main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn packages.api.main:app --host 127.0.0.1 --port 8000
 ```
 
 Then open:
@@ -52,6 +52,7 @@ http://localhost:8000
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET` | `/api/version` | Report the running app version |
 | `POST` | `/api/projects` | Create a new project |
 | `GET` | `/api/projects/{project_id}` | Load project state |
 | `PUT` | `/api/projects/{project_id}/name` | Rename a project |
@@ -69,6 +70,8 @@ http://localhost:8000
 
 ## Notes
 
-- Asset import normalizes media into standard WAV files for the renderer.
-- The app now uses per-project locking to avoid upload/delete write races.
+- Asset import converts media into standard WAV caches for the renderer.
+- The app uses per-project locking and atomic project/render publication.
+- Bundle import validates paths, schema, hashes, sizes, counts, and references.
+- This is an unauthenticated local service; do not bind it to an untrusted network.
 - Timeline playback, zoom, fades, and DAW visualization are currently implemented in the static UI layer.

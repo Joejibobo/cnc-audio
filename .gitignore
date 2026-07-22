@@ -11,6 +11,8 @@ env/
 dist/
 build/
 .pytest_cache/
+.coverage
+htmlcov/
 .mypy_cache/
 .ruff_cache/
 
@@ -42,6 +44,7 @@ yarn-error.log*
 # Rendered output
 renders/
 output/
+projects/
 
 # OS
 .DS_Store

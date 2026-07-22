@@ -79,3 +79,12 @@ class TestFeasibilitySuccess:
         params = basic_params(target=3600.0, max_per_clip=None)
         result = check_feasibility(clips, params)
         assert not result.feasible
+
+    def test_repeatable_sections_count_each_allowed_use(self):
+        clips = [make_asset("a", "clip", duration=10.0)]
+        params = basic_params(target=11.0, max_clip=4.0, max_per_clip=3, crossfade=False)
+        params.repetition.no_repeat_sections = False
+
+        result = check_feasibility(clips, params)
+
+        assert result.feasible

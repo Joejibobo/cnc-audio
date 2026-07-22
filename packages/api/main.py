@@ -1,18 +1,24 @@
 """CNC Audio — FastAPI backend server."""
-import asyncio
+import json
+import math
 import os
 import re
 import shutil
+import stat
+import threading
 import uuid
 import zipfile
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from jsonschema import Draft7Validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from packages.api import APP_VERSION
 
 from packages.engine import (
     Asset,
@@ -47,7 +53,7 @@ from packages.engine.project import (
 # App setup
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="CNC Audio", version="1.0.0")
+app = FastAPI(title="CNC Audio", version=APP_VERSION)
 
 PROJECTS_DIR = Path("projects")
 PROJECTS_DIR.mkdir(exist_ok=True)
@@ -55,20 +61,48 @@ PROJECTS_DIR.mkdir(exist_ok=True)
 STATIC_DIR = Path("packages/api/static")
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# In-memory project registry: project_id -> project dir
-_projects: Dict[str, Path] = {}
+SCHEMA_PATH = Path("schemas/project.schema.json")
+SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+MAX_UPLOAD_BYTES = int(os.environ.get("CNC_AUDIO_MAX_UPLOAD_BYTES", 2 * 1024**3))
+MAX_BUNDLE_BYTES = int(os.environ.get("CNC_AUDIO_MAX_BUNDLE_BYTES", 8 * 1024**3))
+MAX_BUNDLE_EXPANDED_BYTES = int(
+    os.environ.get("CNC_AUDIO_MAX_BUNDLE_EXPANDED_BYTES", 16 * 1024**3)
+)
+MAX_BUNDLE_MEMBERS = int(os.environ.get("CNC_AUDIO_MAX_BUNDLE_MEMBERS", 5000))
+MAX_PROJECT_ASSETS = int(os.environ.get("CNC_AUDIO_MAX_PROJECT_ASSETS", 500))
+MAX_PROJECT_DURATION_SECONDS = float(
+    os.environ.get("CNC_AUDIO_MAX_DURATION_SECONDS", 3600)
+)
+MAX_TIMELINE_EVENTS = int(os.environ.get("CNC_AUDIO_MAX_TIMELINE_EVENTS", 100000))
 
-# Per-project async locks to serialise concurrent writes (upload vs delete etc.)
-_project_locks: Dict[str, asyncio.Lock] = {}
+# A single process-wide transaction lock per project prevents stale snapshots
+# from overwriting newer project state. Project JSON writes are also atomic.
+_project_locks: Dict[str, threading.RLock] = {}
+_project_locks_guard = threading.Lock()
 
-def _get_lock(project_id: str) -> asyncio.Lock:
-    if project_id not in _project_locks:
-        _project_locks[project_id] = asyncio.Lock()
-    return _project_locks[project_id]
+
+def _validate_identifier(value: str, kind: str) -> str:
+    if not SAFE_ID_RE.fullmatch(value or ""):
+        raise HTTPException(status_code=422, detail=f"Invalid {kind} identifier.")
+    return value
+
+
+def _get_lock(project_id: str) -> threading.RLock:
+    project_id = _validate_identifier(project_id, "project")
+    with _project_locks_guard:
+        return _project_locks.setdefault(project_id, threading.RLock())
 
 
 def _project_dir(project_id: str) -> Path:
-    return PROJECTS_DIR / project_id
+    project_id = _validate_identifier(project_id, "project")
+    project_root = PROJECTS_DIR.resolve()
+    project_dir = (project_root / project_id).resolve()
+    try:
+        project_dir.relative_to(project_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid project path.") from exc
+    return project_dir
 
 
 def _cnc_path(project_id: str) -> Path:
@@ -135,10 +169,8 @@ def _safe_project_filename(project_name: str) -> str:
 
 
 def _download_output_path(project_id: str, project) -> Path:
-    download_dir = _project_dir(project_id) / "downloads"
-    download_dir.mkdir(exist_ok=True)
-    project_name = project.project.get("name", "Untitled Project")
-    return download_dir / f"{_safe_project_filename(project_name)}.wav"
+    del project  # Download names are Content-Disposition metadata, not storage paths.
+    return _project_dir(project_id) / "renders" / "latest.wav"
 
 
 def _ensure_project_dirs(project_dir: Path) -> None:
@@ -158,6 +190,74 @@ def _export_bundle_path(project_id: str, project) -> Path:
 def _project_download_filename(project) -> str:
     project_name = project.project.get("name", "Untitled Project")
     return f"{_safe_project_filename(project_name)}.wav"
+
+
+def _invalidate_render(project_id: str) -> None:
+    (_project_dir(project_id) / "renders" / "latest.wav").unlink(missing_ok=True)
+
+
+def _invalidate_timeline_and_render(project_id: str, project) -> None:
+    project.timeline = None
+    _invalidate_render(project_id)
+
+
+def _resolve_asset_source(project_dir: Path, asset_path: str) -> Path:
+    if not isinstance(asset_path, str) or not asset_path:
+        raise HTTPException(status_code=422, detail="Invalid asset path in project bundle.")
+    relative = Path(asset_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise HTTPException(status_code=422, detail="Invalid asset path in project bundle.")
+    candidate = (project_dir / relative).resolve()
+    assets_root = (project_dir / "assets").resolve()
+    try:
+        candidate.relative_to(assets_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail="Project asset paths must stay inside assets/."
+        ) from exc
+    return candidate
+
+
+async def _stream_upload(file: UploadFile, destination: Path, max_bytes: int) -> int:
+    total = 0
+    try:
+        with destination.open("wb") as output:
+            while chunk := await file.read(UPLOAD_CHUNK_BYTES):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise HTTPException(status_code=413, detail="Uploaded file is too large.")
+                output.write(chunk)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+    return total
+
+
+def _validate_project_schema(project_file: Path) -> None:
+    def reject_constant(value: str):
+        raise ValueError(f"Invalid non-finite JSON number: {value}")
+
+    try:
+        with project_file.open("r", encoding="utf-8") as stream:
+            project_data = json.load(stream, parse_constant=reject_constant)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=422, detail="Project file is not valid JSON.") from exc
+
+    errors = sorted(
+        Draft7Validator(json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))).iter_errors(
+            project_data
+        ),
+        key=lambda error: list(error.absolute_path),
+    )
+    if errors:
+        first = errors[0]
+        location = ".".join(str(part) for part in first.absolute_path) or "project"
+        raise HTTPException(
+            status_code=422,
+            detail=f"Project file does not match schema at {location}: {first.message}",
+        )
 
 
 def _default_render_settings(project) -> dict:
@@ -277,6 +377,24 @@ def _set_render_settings(project, render_settings: dict) -> None:
     project.export.normalize_output = bool(render_settings["normalize_output"])
 
 
+def _generation_state(project) -> str:
+    """Return a stable snapshot of every input that affects generation/rendering."""
+    _ensure_layered_project_state(project)
+    return json.dumps(
+        {
+            "song_assets": [_dump_asset(asset) for asset in _get_song_assets(project)],
+            "sound_assets": [_dump_asset(asset) for asset in _get_sound_assets(project)],
+            "song_parameters": _dump_parameters(_get_song_parameters(project)),
+            "sound_parameters": _dump_parameters(_get_sound_parameters(project)),
+            "render_settings": _get_render_settings(project),
+            "seed": project.seed,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
 def _dump_timeline_events_with_layers(project) -> list:
     _ensure_layered_project_state(project)
     song_ids = {a.id for a in _get_song_assets(project)}
@@ -380,23 +498,61 @@ def _apply_sound_end_behavior(sound_events: List, song_target: float, behavior: 
 
 def _safe_extract_bundle(archive: zipfile.ZipFile, destination: Path) -> None:
     base = destination.resolve()
-    for member in archive.infolist():
+    members = archive.infolist()
+    if len(members) > MAX_BUNDLE_MEMBERS:
+        raise HTTPException(status_code=413, detail="Project bundle contains too many files.")
+    expanded_total = sum(member.file_size for member in members)
+    if expanded_total > MAX_BUNDLE_EXPANDED_BYTES:
+        raise HTTPException(status_code=413, detail="Expanded project bundle is too large.")
+
+    seen_paths = set()
+    for member in members:
         member_path = Path(member.filename)
-        if member_path.is_absolute() or ".." in member_path.parts:
+        normalized_name = member.filename.replace("\\", "/").rstrip("/").casefold()
+        if not normalized_name or normalized_name in seen_paths:
+            raise HTTPException(status_code=422, detail="Project bundle has duplicate paths.")
+        seen_paths.add(normalized_name)
+        unix_mode = member.external_attr >> 16
+        if stat.S_ISLNK(unix_mode) or member.flag_bits & 0x1:
+            raise HTTPException(status_code=422, detail="Project bundle contains an unsafe file.")
+        if member_path.is_absolute() or member_path.drive or ".." in member_path.parts:
             raise HTTPException(status_code=422, detail="Invalid project bundle path.")
         try:
-            (base / member_path).resolve().relative_to(base)
+            target = (base / member_path).resolve()
+            target.relative_to(base)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="Invalid project bundle path.") from exc
-    archive.extractall(destination)
+
+    extracted_total = 0
+    for member in members:
+        target = (base / Path(member.filename)).resolve()
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(member, "r") as source, target.open("wb") as output:
+            while chunk := source.read(UPLOAD_CHUNK_BYTES):
+                extracted_total += len(chunk)
+                if extracted_total > MAX_BUNDLE_EXPANDED_BYTES:
+                    raise HTTPException(status_code=413, detail="Expanded project bundle is too large.")
+                output.write(chunk)
 
 
 # ---------------------------------------------------------------------------
 # Project endpoints
 # ---------------------------------------------------------------------------
 
-class CreateProjectRequest(BaseModel):
-    name: str = "Untitled Project"
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False, extra="forbid")
+
+
+class CreateProjectRequest(StrictRequestModel):
+    name: str = Field(default="Untitled Project", max_length=200)
+
+
+@app.get("/api/version")
+def get_version():
+    return {"version": APP_VERSION}
 
 
 @app.post("/api/projects")
@@ -405,47 +561,54 @@ def create_project(body: CreateProjectRequest):
     project_dir = _project_dir(project_id)
     _ensure_project_dirs(project_dir)
 
-    project = new_project(body.name)
+    project = new_project(body.name.strip() or "Untitled Project")
     _save(project_id, project)
     return {"id": project_id, **_project_to_dict(project, project_id)}
 
 
 @app.get("/api/projects/{project_id}")
 def get_project(project_id: str):
-    project = _load(project_id)
-    return {"id": project_id, **_project_to_dict(project, project_id)}
+    with _get_lock(project_id):
+        project = _load(project_id)
+        return {"id": project_id, **_project_to_dict(project, project_id)}
 
 
-class ProjectNameRequest(BaseModel):
-    name: str
+class ProjectNameRequest(StrictRequestModel):
+    name: str = Field(max_length=200)
 
 
 @app.put("/api/projects/{project_id}/name")
 def update_project_name(project_id: str, body: ProjectNameRequest):
-    project = _load(project_id)
-    name = body.name.strip() or "Untitled Project"
-    project.project["name"] = name
-    _save(project_id, project)
-    return {"name": name}
+    with _get_lock(project_id):
+        project = _load(project_id)
+        name = body.name.strip() or "Untitled Project"
+        project.project["name"] = name
+        _save(project_id, project)
+        return {"name": name, "download_filename": _project_download_filename(project)}
 
 
 @app.get("/api/projects/{project_id}/export")
 def export_project(project_id: str):
-    project = _load(project_id)
-    project_dir = _project_dir(project_id)
-    bundle_path = _export_bundle_path(project_id, project)
+    with _get_lock(project_id):
+        project = _load(project_id)
+        project_dir = _project_dir(project_id)
+        bundle_path = _export_bundle_path(project_id, project)
 
-    with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        project_file = _cnc_path(project_id)
-        if project_file.exists():
+        with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            project_file = _cnc_path(project_id)
             archive.write(project_file, arcname="project.cnc")
-        for folder_name in ("assets", "renders", "downloads"):
-            folder = project_dir / folder_name
-            if not folder.exists():
-                continue
-            for file_path in folder.rglob("*"):
-                if file_path.is_file():
-                    archive.write(file_path, arcname=str(file_path.relative_to(project_dir)))
+            assets = _get_song_assets(project) + _get_sound_assets(project)
+            for asset in assets:
+                source_path = _resolve_asset_source(project_dir, asset.path)
+                if not source_path.is_file():
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Project is missing source media for '{asset.name}'.",
+                    )
+                archive.write(
+                    source_path,
+                    arcname=source_path.relative_to(project_dir).as_posix(),
+                )
 
     return FileResponse(
         str(bundle_path),
@@ -462,8 +625,7 @@ async def import_project_bundle(file: UploadFile = File(...)):
     bundle_path = project_dir / "__import_bundle.zip"
 
     try:
-        with bundle_path.open("wb") as f:
-            f.write(await file.read())
+        await _stream_upload(file, bundle_path, MAX_BUNDLE_BYTES)
 
         try:
             with zipfile.ZipFile(bundle_path, "r") as archive:
@@ -477,35 +639,95 @@ async def import_project_bundle(file: UploadFile = File(...)):
         if not project_file.exists():
             raise HTTPException(status_code=422, detail="Project bundle is missing project.cnc.")
 
+        _validate_project_schema(project_file)
         project = load_project(str(project_file))
         _ensure_layered_project_state(project)
-        all_assets = _get_song_assets(project) + _get_sound_assets(project)
+        song_assets = _get_song_assets(project)
+        sound_assets = _get_sound_assets(project)
+        all_assets = song_assets + sound_assets
+        if len(all_assets) > MAX_PROJECT_ASSETS:
+            raise HTTPException(status_code=413, detail="Project contains too many assets.")
+        asset_ids = set()
         for asset in all_assets:
-            source_path = project_dir / asset.path
-            if not source_path.exists():
+            _validate_identifier(asset.id, "asset")
+            if asset.id in asset_ids:
+                raise HTTPException(status_code=422, detail="Project contains duplicate asset IDs.")
+            asset_ids.add(asset.id)
+            source_path = _resolve_asset_source(project_dir, asset.path)
+            if not source_path.is_file():
                 raise HTTPException(
                     status_code=422,
                     detail=f"Project bundle is missing asset source '{asset.path}'.",
                 )
+            if hash_file(str(source_path)) != asset.hash:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Source media hash does not match for '{asset.name}'.",
+                )
 
             wav_path = project_dir / "assets" / f"{asset.id}.wav"
-            if not wav_path.exists():
-                try:
-                    convert_to_standard_wav(str(source_path), str(wav_path))
-                except Exception as exc:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"Failed to prepare imported asset '{asset.name}': {exc}",
-                    ) from exc
+            try:
+                convert_to_standard_wav(str(source_path), str(wav_path))
+                actual_duration = probe_duration(str(wav_path))
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Failed to prepare imported asset '{asset.name}'.",
+                ) from exc
+            if not math.isfinite(actual_duration) or not (0 < actual_duration <= MAX_PROJECT_DURATION_SECONDS):
+                raise HTTPException(status_code=422, detail="Imported asset duration is invalid.")
+            asset.duration_seconds = round(actual_duration, 4)
 
+        _set_song_assets(project, song_assets)
+        _set_sound_assets(project, sound_assets)
+
+        if project.timeline is not None:
+            if (
+                project.timeline.total_duration_seconds > MAX_PROJECT_DURATION_SECONDS
+                or len(project.timeline.events) > MAX_TIMELINE_EVENTS
+            ):
+                raise HTTPException(status_code=413, detail="Project timeline exceeds release limits.")
+            previous_position = -1.0
+            asset_by_id = {asset.id: asset for asset in all_assets}
+            for event in project.timeline.events:
+                if event.position_seconds < previous_position:
+                    raise HTTPException(status_code=422, detail="Timeline events are not ordered.")
+                previous_position = event.position_seconds
+                if event.type == "clip":
+                    if event.asset_id not in asset_ids:
+                        raise HTTPException(
+                            status_code=422, detail="Timeline references an unknown asset."
+                        )
+                    if (
+                        event.source_end_seconds <= event.source_start_seconds
+                        or event.source_end_seconds
+                        > asset_by_id[event.asset_id].duration_seconds + 0.001
+                    ):
+                        raise HTTPException(
+                            status_code=422, detail="Timeline contains an invalid source region."
+                        )
+                    event_end = event.position_seconds + (
+                        event.source_end_seconds - event.source_start_seconds
+                    )
+                else:
+                    event_end = event.position_seconds + event.duration_seconds
+                if event_end > project.timeline.total_duration_seconds + 0.001:
+                    raise HTTPException(
+                        status_code=422, detail="Timeline event exceeds the timeline duration."
+                    )
+
+        _invalidate_render(project_id)
         _save(project_id, project)
         return {"id": project_id, **_project_to_dict(project, project_id)}
     except HTTPException:
         shutil.rmtree(project_dir, ignore_errors=True)
         raise
+    except (OSError, ValueError) as exc:
+        shutil.rmtree(project_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail="Project import failed validation.") from exc
     except Exception as exc:
         shutil.rmtree(project_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=f"Project import failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Project import failed.") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -513,20 +735,25 @@ async def import_project_bundle(file: UploadFile = File(...)):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/projects/{project_id}/assets")
-async def import_asset(project_id: str, category: str = "songs", file: UploadFile = File(...)):
-    if category not in ("songs", "sounds"):
-        raise HTTPException(status_code=422, detail="category must be 'songs' or 'sounds'.")
+async def import_asset(
+    project_id: str,
+    category: Literal["songs", "sounds"] = "songs",
+    file: UploadFile = File(...),
+):
     project_dir = _project_dir(project_id)
     assets_dir = project_dir / "assets"
+    with _get_lock(project_id):
+        _load(project_id)
 
     # Save the uploaded file to a temp location (outside the lock — I/O only)
-    ext = Path(file.filename).suffix.lower()
+    original_name = Path(file.filename or "media")
+    ext = original_name.suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,10}", ext):
+        ext = ".media"
     asset_id = str(uuid.uuid4())
     original_path = assets_dir / f"{asset_id}_original{ext}"
 
-    with original_path.open("wb") as f:
-        content = await file.read()
-        f.write(content)
+    await _stream_upload(file, original_path, MAX_UPLOAD_BYTES)
 
     # Convert to standard WAV for rendering (CPU work, outside the lock)
     wav_path = assets_dir / f"{asset_id}.wav"
@@ -537,12 +764,16 @@ async def import_asset(project_id: str, category: str = "songs", file: UploadFil
         original_path.unlink(missing_ok=True)
         wav_path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=f"Failed to process audio: {e}")
+    if not math.isfinite(duration) or not (0 < duration <= MAX_PROJECT_DURATION_SECONDS):
+        original_path.unlink(missing_ok=True)
+        wav_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="Imported asset duration is invalid.")
 
     file_hash = hash_file(str(original_path))
 
     asset = Asset(
         id=asset_id,
-        name=Path(file.filename).stem,
+        name=(re.sub(r"[\x00-\x1f\x7f]", "", original_name.stem).strip() or "Untitled Clip")[:200],
         path=f"assets/{asset_id}_original{ext}",
         hash=file_hash,
         duration_seconds=round(duration, 4),
@@ -551,9 +782,13 @@ async def import_asset(project_id: str, category: str = "songs", file: UploadFil
     )
 
     # Serialise the project-file write under a per-project lock
-    async with _get_lock(project_id):
+    with _get_lock(project_id):
         project = _load(project_id)
         _ensure_layered_project_state(project)
+        if len(_get_song_assets(project)) + len(_get_sound_assets(project)) >= MAX_PROJECT_ASSETS:
+            original_path.unlink(missing_ok=True)
+            wav_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=413, detail="Project contains too many assets.")
         if category == "songs":
             song_assets = _get_song_assets(project)
             song_assets.append(asset)
@@ -562,6 +797,7 @@ async def import_asset(project_id: str, category: str = "songs", file: UploadFil
             sound_assets = _get_sound_assets(project)
             sound_assets.append(asset)
             _set_sound_assets(project, sound_assets)
+        _invalidate_timeline_and_render(project_id, project)
         _save(project_id, project)
 
     return {"category": category, **_dump_asset(asset)}
@@ -569,7 +805,8 @@ async def import_asset(project_id: str, category: str = "songs", file: UploadFil
 
 @app.delete("/api/projects/{project_id}/assets/{asset_id}")
 async def delete_asset(project_id: str, asset_id: str):
-    async with _get_lock(project_id):
+    _validate_identifier(asset_id, "asset")
+    with _get_lock(project_id):
         project = _load(project_id)
         _ensure_layered_project_state(project)
         # Asset may already be gone if a previous delete raced — that's fine
@@ -582,6 +819,7 @@ async def delete_asset(project_id: str, asset_id: str):
             for f in assets_dir.glob(f"{asset_id}*"):
                 f.unlink(missing_ok=True)
 
+        _invalidate_timeline_and_render(project_id, project)
         _save(project_id, project)
     return {"ok": True}
 
@@ -590,72 +828,121 @@ async def delete_asset(project_id: str, asset_id: str):
 # Parameters
 # ---------------------------------------------------------------------------
 
-class LayerParametersRequest(BaseModel):
-    clip_duration_min: float
-    clip_duration_max: float
-    max_per_clip: Optional[int] = None
-    min_gap_clips: int = 0
+class LayerParametersRequest(StrictRequestModel):
+    clip_duration_min: float = Field(gt=0, le=MAX_PROJECT_DURATION_SECONDS)
+    clip_duration_max: float = Field(gt=0, le=MAX_PROJECT_DURATION_SECONDS)
+    max_per_clip: Optional[int] = Field(default=None, ge=1, le=100000)
+    min_gap_clips: int = Field(default=0, ge=0, le=1000)
     allow_consecutive: bool = False
     crossfade_enabled: bool = True
-    crossfade_min: float = 0.1
-    crossfade_max: float = 2.0
-    crossfade_probability: float = 0.8
+    crossfade_min: float = Field(default=0.1, ge=0, le=60)
+    crossfade_max: float = Field(default=2.0, ge=0, le=60)
+    crossfade_probability: float = Field(default=0.8, ge=0, le=1)
     silence_enabled: bool = False
-    silence_probability: float = 0.3
-    silence_min: float = 0.2
-    silence_max: float = 2.0
-    normalize: bool = True
-    target_lufs: float = -18.0
-    max_gain_db: float = 12.0
-    random_variation_db: float = 0.0
-    distribution: str = "uniform"
-    chaos: float = 1.0
+    silence_probability: float = Field(default=0.3, ge=0, le=1)
+    silence_min: float = Field(default=0.2, ge=0, le=MAX_PROJECT_DURATION_SECONDS)
+    silence_max: float = Field(default=2.0, ge=0, le=MAX_PROJECT_DURATION_SECONDS)
+    normalize: bool = False
+    target_lufs: float = Field(default=-18.0, ge=-70, le=0)
+    max_gain_db: float = Field(default=12.0, ge=0, le=60)
+    random_variation_db: float = Field(default=0.0, ge=0, le=60)
+    distribution: Literal["uniform", "weighted", "sequential"] = "uniform"
+    chaos: float = Field(default=1.0, ge=0, le=1)
     allow_repeats: bool = True
     no_repeat_sections: bool = True
-    repeat_decay: float = 0.0
-    duration_rule: str = "fade_last"
+    repeat_decay: float = Field(default=0.0, ge=0, le=1)
+    duration_rule: Literal[
+        "trim_last", "fade_last", "pad_silence", "fill_random_clip", "extend_last_clip"
+    ] = "fade_last"
     asset_weights: Optional[Dict[str, float]] = None
 
+    @field_validator("asset_weights")
+    @classmethod
+    def validate_asset_weights(cls, weights):
+        if weights is None:
+            return None
+        for asset_id, weight in weights.items():
+            if not SAFE_ID_RE.fullmatch(asset_id) or not math.isfinite(weight) or not (0.1 <= weight <= 5.0):
+                raise ValueError("asset_weights must map valid asset IDs to values from 0.1 to 5.0")
+        return weights
 
-class RenderSettingsRequest(BaseModel):
-    target_duration_seconds: float
-    song_gain_db: float = 0.0
-    sound_gain_db: float = 0.0
-    render_gain_db: float = 0.0
+    @model_validator(mode="after")
+    def validate_bounds(self):
+        if self.clip_duration_min > self.clip_duration_max:
+            raise ValueError("clip_duration_min must not exceed clip_duration_max")
+        if self.crossfade_min > self.crossfade_max:
+            raise ValueError("crossfade_min must not exceed crossfade_max")
+        if self.silence_min > self.silence_max:
+            raise ValueError("silence_min must not exceed silence_max")
+        return self
+
+
+class RenderSettingsRequest(StrictRequestModel):
+    target_duration_seconds: float = Field(gt=0, le=MAX_PROJECT_DURATION_SECONDS)
+    song_gain_db: float = Field(default=0.0, ge=-60, le=24)
+    sound_gain_db: float = Field(default=0.0, ge=-60, le=24)
+    render_gain_db: float = Field(default=0.0, ge=-60, le=24)
     normalize_output: bool = True
-    master_fade_in_seconds: float = 0.0
-    master_fade_out_seconds: float = 0.0
+    master_fade_in_seconds: float = Field(default=0.0, ge=0, le=600)
+    master_fade_out_seconds: float = Field(default=0.0, ge=0, le=600)
 
 
-class ParametersRequest(BaseModel):
-    target_duration_seconds: Optional[float] = None
-    clip_duration_min: Optional[float] = None
-    clip_duration_max: Optional[float] = None
-    max_per_clip: Optional[int] = None
-    min_gap_clips: int = 0
+class ParametersRequest(StrictRequestModel):
+    target_duration_seconds: Optional[float] = Field(
+        default=None, gt=0, le=MAX_PROJECT_DURATION_SECONDS
+    )
+    clip_duration_min: Optional[float] = Field(
+        default=None, gt=0, le=MAX_PROJECT_DURATION_SECONDS
+    )
+    clip_duration_max: Optional[float] = Field(
+        default=None, gt=0, le=MAX_PROJECT_DURATION_SECONDS
+    )
+    max_per_clip: Optional[int] = Field(default=None, ge=1, le=100000)
+    min_gap_clips: int = Field(default=0, ge=0, le=1000)
     allow_consecutive: bool = False
     crossfade_enabled: bool = True
-    crossfade_min: float = 0.1
-    crossfade_max: float = 2.0
-    crossfade_probability: float = 0.8
+    crossfade_min: float = Field(default=0.1, ge=0, le=60)
+    crossfade_max: float = Field(default=2.0, ge=0, le=60)
+    crossfade_probability: float = Field(default=0.8, ge=0, le=1)
     silence_enabled: bool = False
-    silence_probability: float = 0.3
-    silence_min: float = 0.2
-    silence_max: float = 2.0
-    normalize: bool = True
-    target_lufs: float = -18.0
-    max_gain_db: float = 12.0
-    random_variation_db: float = 0.0
-    distribution: str = "uniform"
-    chaos: float = 1.0
+    silence_probability: float = Field(default=0.3, ge=0, le=1)
+    silence_min: float = Field(default=0.2, ge=0, le=MAX_PROJECT_DURATION_SECONDS)
+    silence_max: float = Field(default=2.0, ge=0, le=MAX_PROJECT_DURATION_SECONDS)
+    normalize: bool = False
+    target_lufs: float = Field(default=-18.0, ge=-70, le=0)
+    max_gain_db: float = Field(default=12.0, ge=0, le=60)
+    random_variation_db: float = Field(default=0.0, ge=0, le=60)
+    distribution: Literal["uniform", "weighted", "sequential"] = "uniform"
+    chaos: float = Field(default=1.0, ge=0, le=1)
     allow_repeats: bool = True
     no_repeat_sections: bool = True
-    repeat_decay: float = 0.0
-    duration_rule: str = "fade_last"
+    repeat_decay: float = Field(default=0.0, ge=0, le=1)
+    duration_rule: Literal[
+        "trim_last", "fade_last", "pad_silence", "fill_random_clip", "extend_last_clip"
+    ] = "fade_last"
     asset_weights: Optional[Dict[str, float]] = None
     song_parameters: Optional[LayerParametersRequest] = None
     sound_parameters: Optional[LayerParametersRequest] = None
     render_settings: Optional[RenderSettingsRequest] = None
+
+    @field_validator("asset_weights")
+    @classmethod
+    def validate_legacy_asset_weights(cls, weights):
+        return LayerParametersRequest.validate_asset_weights(weights)
+
+    @model_validator(mode="after")
+    def validate_legacy_bounds(self):
+        if (
+            self.clip_duration_min is not None
+            and self.clip_duration_max is not None
+            and self.clip_duration_min > self.clip_duration_max
+        ):
+            raise ValueError("clip_duration_min must not exceed clip_duration_max")
+        if self.crossfade_min > self.crossfade_max:
+            raise ValueError("crossfade_min must not exceed crossfade_max")
+        if self.silence_min > self.silence_max:
+            raise ValueError("silence_min must not exceed silence_max")
+        return self
 
 
 def _build_parameters(layer: LayerParametersRequest, target_duration_seconds: float) -> Parameters:
@@ -746,8 +1033,14 @@ def _collect_layered_feasibility(project):
 
 @app.put("/api/projects/{project_id}/parameters")
 def update_parameters(project_id: str, body: ParametersRequest):
+    with _get_lock(project_id):
+        return _update_parameters(project_id, body)
+
+
+def _update_parameters(project_id: str, body: ParametersRequest):
     project = _load(project_id)
     _ensure_layered_project_state(project)
+    previous_state = _generation_state(project)
 
     has_layered_payload = (
         body.song_parameters is not None
@@ -843,6 +1136,8 @@ def update_parameters(project_id: str, body: ParametersRequest):
         )
         song_params = _build_parameters(legacy_layer, float(target))
         _set_song_parameters(project, song_params)
+    if _generation_state(project) != previous_state:
+        _invalidate_timeline_and_render(project_id, project)
     _save(project_id, project)
     return _project_to_dict(project, project_id)
 
@@ -851,16 +1146,20 @@ def update_parameters(project_id: str, body: ParametersRequest):
 # Seed
 # ---------------------------------------------------------------------------
 
-class SeedRequest(BaseModel):
-    seed: str
+class SeedRequest(StrictRequestModel):
+    seed: str = Field(min_length=1, max_length=500)
 
 
 @app.put("/api/projects/{project_id}/seed")
 def update_seed(project_id: str, body: SeedRequest):
-    project = _load(project_id)
-    project.seed = body.seed
-    _save(project_id, project)
-    return {"seed": project.seed}
+    with _get_lock(project_id):
+        project = _load(project_id)
+        changed = project.seed != body.seed
+        project.seed = body.seed
+        if changed:
+            _invalidate_timeline_and_render(project_id, project)
+        _save(project_id, project)
+        return {"seed": project.seed}
 
 
 # ---------------------------------------------------------------------------
@@ -869,13 +1168,14 @@ def update_seed(project_id: str, body: SeedRequest):
 
 @app.get("/api/projects/{project_id}/feasibility")
 def get_feasibility(project_id: str):
-    project = _load(project_id)
-    result = _collect_layered_feasibility(project)
-    return {
-        "feasible": result["feasible"],
-        "warnings": result["warnings"],
-        "errors": result["errors"],
-    }
+    with _get_lock(project_id):
+        project = _load(project_id)
+        result = _collect_layered_feasibility(project)
+        return {
+            "feasible": result["feasible"],
+            "warnings": result["warnings"],
+            "errors": result["errors"],
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -884,6 +1184,11 @@ def get_feasibility(project_id: str):
 
 @app.post("/api/projects/{project_id}/generate")
 def generate(project_id: str):
+    with _get_lock(project_id):
+        return _generate(project_id)
+
+
+def _generate(project_id: str):
     project = _load(project_id)
     feasibility = _collect_layered_feasibility(project)
     if not feasibility["feasible"]:
@@ -923,6 +1228,7 @@ def generate(project_id: str):
                 for e in events
             ), 4)
     project.timeline = Timeline(events=events, total_duration_seconds=total_duration)
+    _invalidate_render(project_id)
     _save(project_id, project)
     song_clip_count = sum(1 for e in song_timeline.events if e.type == "clip")
     sound_clip_count = (
@@ -971,6 +1277,11 @@ def generate(project_id: str):
 
 @app.post("/api/projects/{project_id}/render")
 def render(project_id: str):
+    with _get_lock(project_id):
+        return _render(project_id)
+
+
+def _render(project_id: str):
     project = _load(project_id)
     _ensure_layered_project_state(project)
 
@@ -1004,19 +1315,20 @@ def render(project_id: str):
         total_duration_seconds=project.timeline.total_duration_seconds,
     )
 
-    latest_path = project_dir / "renders" / "latest.wav"
     output_path = _download_output_path(project_id, project)
+    temp_output_path = output_path.with_name(f".latest-{uuid.uuid4().hex}.tmp.wav")
 
     try:
-        render_timeline(render_timeline_obj, asset_wav_map, str(output_path), project.export,
+        render_timeline(render_timeline_obj, asset_wav_map, str(temp_output_path), project.export,
                         master_fade_in=render_settings.get("master_fade_in_seconds", 0.0),
                         master_fade_out=render_settings.get("master_fade_out_seconds", 0.0))
-        shutil.copyfile(str(output_path), str(latest_path))
+        os.replace(temp_output_path, output_path)
     except Exception as e:
+        temp_output_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Render failed: {e}")
 
     size_mb = os.path.getsize(str(output_path)) / (1024 * 1024)
-    filename = output_path.name
+    filename = _project_download_filename(project)
     return {
         "ok": True,
         "duration_seconds": project.timeline.total_duration_seconds,
@@ -1047,7 +1359,7 @@ def get_audio(project_id: str, request: Request):
         return FileResponse(str(audio_path), media_type=media_type, headers=base_headers)
 
     # Parse "bytes=start-end" (end is optional)
-    m = re.match(r"bytes=(\d+)-(\d*)", range_header)
+    m = re.fullmatch(r"bytes=(\d+)-(\d*)", range_header)
     if not m:
         raise HTTPException(status_code=416, detail="Invalid Range header")
 
@@ -1090,15 +1402,13 @@ def get_audio(project_id: str, request: Request):
 
 @app.get("/api/projects/{project_id}/download")
 def download_audio(project_id: str):
-    project = _load(project_id)
-    output_path = _download_output_path(project_id, project)
-    if not output_path.exists():
-        raise HTTPException(status_code=404, detail="No render found. Render the project first.")
-    return FileResponse(
-        str(output_path),
-        media_type="audio/wav",
-        filename=output_path.name,
-    )
+    with _get_lock(project_id):
+        project = _load(project_id)
+        output_path = _download_output_path(project_id, project)
+        if not output_path.exists():
+            raise HTTPException(status_code=404, detail="No render found. Render the project first.")
+        filename = _project_download_filename(project)
+    return FileResponse(str(output_path), media_type="audio/wav", filename=filename)
 
 
 # ---------------------------------------------------------------------------

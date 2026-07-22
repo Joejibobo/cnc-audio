@@ -1,128 +1,71 @@
-# CNC Audio — Architecture
+# CNC Audio Architecture
 
 ## Overview
 
-CNC Audio is built around a strict separation between **composition** (deciding *what* to play and *when*) and **rendering** (actually producing audio).
+CNC Audio is a local browser application with four working parts:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         User Interface                          │
-│                    (React + TypeScript)                         │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ HTTP (FastAPI)
-┌────────────────────────────▼────────────────────────────────────┐
-│                          API Layer                              │
-│                         packages/api                            │
-└───────┬───────────────────────────────────────┬────────────────┘
-        │                                       │
-┌───────▼───────┐                   ┌───────────▼──────────┐
-│    Engine     │                   │      Renderer        │
-│  packages/    │                   │     packages/        │
-│  engine/      │                   │     renderer/        │
-│               │                   │                      │
-│ Takes:        │                   │ Takes:               │
-│  - assets     │                   │  - .cnc timeline     │
-│  - parameters │                   │  - source audio      │
-│  - seed       │                   │                      │
-│               │                   │ Produces:            │
-│ Produces:     │                   │  - WAV/MP3/FLAC      │
-│  - timeline   │                   │    via FFmpeg        │
-│  - .cnc file  │                   └──────────────────────┘
-└───────┬───────┘
-        │
-┌───────▼───────┐
-│   Analyzer    │
-│  packages/    │
-│  analyzer/    │
-│               │
-│ Optional:     │
-│  - BPM        │
-│  - Key        │
-│  - LUFS       │
-│  - Energy     │
-│ (confidence   │
-│  scored)      │
-└───────────────┘
+```text
+Browser UI (HTML/CSS/JavaScript)
+              |
+              v
+       FastAPI application
+          /          \
+ timeline engine    WAV renderer
+          \          /
+          project.cnc + local media
 ```
 
-## Packages
+- `packages/api/` serves the single-page browser UI and JSON/media endpoints.
+- `packages/engine/` validates constraints and deterministically builds a
+  timeline from assets, parameters, and a seed. It does not decode audio.
+- `packages/renderer/importer.py` uses FFmpeg/ffprobe to probe and convert
+  imported media to 44.1 kHz stereo PCM WAV caches.
+- `packages/renderer/renderer.py` uses NumPy and Python's `wave` module to mix
+  clips, gains, overlaps, and fades into the final WAV.
 
-### `engine/`
-The heart of CNC Audio. Responsible for:
-- Validating that parameters are feasible before attempting generation
-- Building a valid, deterministic timeline from a seed + assets + parameters
-- Enforcing hard constraints (max repeats, duration bounds)
-- Applying soft preferences (gap rules, chaos level, energy curve)
-- Outputting a validated `.cnc` project file
+`packages/analyzer/` is reserved for future BPM, key, loudness, and energy
+analysis. No analysis pipeline is active in v0.2.1.
 
-**Does not touch audio files.** Works entirely on metadata.
+## Data flow
 
-### `renderer/`
-Converts a `.cnc` timeline into actual audio. Uses **FFmpeg** for all media operations:
-- Decoding source audio (any format FFmpeg supports)
-- Applying gain adjustments (via `volume` filter)
-- Applying fade-in/fade-out (via `afade` filter)
-- Concatenating clips with overlapping crossfades (via `amix`/`acrossfade`)
-- Final loudness normalization + true-peak limiting (via `loudnorm`)
-- Encoding output (WAV, MP3, FLAC, AAC)
+1. The API streams source media into a project asset directory with a size cap.
+2. FFmpeg prepares an internal WAV cache and ffprobe supplies the duration.
+3. Settings and the seed are atomically saved in `project.cnc`.
+4. The engine checks feasibility and stores a deterministic timeline.
+5. The renderer mixes cached WAV assets in memory and atomically publishes
+   `renders/latest.wav`.
+6. The browser previews or downloads that render.
 
-**Never modifies source files.**
+Changing an asset, generation setting, render setting, or seed invalidates the
+old timeline and render. Changing only the project name preserves them.
 
-### `analyzer/`
-Optional analysis that enriches asset metadata:
-- **BPM detection** — using librosa beat tracker
-- **Key detection** — using librosa chromagram
-- **LUFS measurement** — using FFmpeg `ebur128` filter
-- **Energy estimation** — RMS energy normalized to [0, 1]
+## Persistence and portability
 
-All results include a **confidence score**. The engine only uses analysis data when:
-1. It has been explicitly enabled by the user
-2. The confidence score exceeds a configurable threshold
+Local autosaves live under `projects/<project-id>/`. Writes to `project.cnc`
+and publication of the final render use same-directory temporary files and
+atomic replacement. A per-project in-process lock serializes mutations.
 
-### `api/`
-FastAPI server that exposes the engine, renderer, and analyzer as HTTP endpoints. The frontend communicates exclusively through this API.
+Portable `.cncaudio.zip` bundles contain only `project.cnc` and referenced
+original source media. On import, the API validates the schema, paths, member
+counts, expanded size, hashes, asset IDs, durations, and timeline references,
+then regenerates internal WAV caches. Renders are intentionally not trusted or
+restored from bundles.
 
-### `frontend/`
-React + TypeScript single-page application. Key views:
-- **Clip Library** — import, tag, weight, and preview clips
-- **Parameter Panel** — all generation controls with real-time feasibility feedback
-- **Timeline View** — visualize, lock, and reroll sections of the generated timeline
-- **Export** — configure output format and trigger render
+## Renderer contract in v0.2.1
 
-## Data Flow
+- Output: WAV, 44.1 kHz, stereo, 16-bit PCM.
+- Crossfades: overlapping clips with complementary linear fades.
+- Output protection: sample-peak normalization/limiting to the configured
+  ceiling (default -1 dBFS).
+- Not implemented: measured integrated LUFS normalization, oversampled
+  true-peak limiting, or MP3/FLAC/AAC output.
 
-```
-1. User imports audio files
-   → API calls ffprobe to extract duration/format metadata
-   → Assets added to .cnc project
+The renderer holds the output mix and decoded asset cache in memory. The local
+API caps target and asset duration at one hour by default; deployments can
+lower the documented `CNC_AUDIO_MAX_*` environment limits for their hardware.
 
-2. [Optional] User runs analysis
-   → Analyzer runs BPM/key/LUFS/energy detection
-   → Results stored in asset.analysis with confidence scores
+## Network boundary
 
-3. User sets parameters and clicks Generate
-   → API validates feasibility
-   → Engine generates timeline (deterministic, seeded)
-   → Timeline stored in .cnc project
-   → Frontend visualizes timeline
-
-4. [Optional] User edits timeline
-   → Lock/unlock individual events
-   → Reroll unlocked events with same or new seed
-
-5. User renders
-   → Renderer reads timeline + source files
-   → FFmpeg pipeline assembles and processes audio
-   → Output file saved to disk
-```
-
-## FFmpeg as Primary Tool
-
-FFmpeg is used for all media I/O and processing. This provides:
-- Universal format support (any audio/video FFmpeg can read)
-- Video-to-audio extraction (`-vn` flag)
-- Professional-grade loudness measurement and normalization (`ebur128`, `loudnorm`)
-- True-peak limiting
-- No Python audio library dependencies for core functionality
-
-`pydub` may be used for rapid prototyping during development but is not part of the production rendering pipeline.
+`start.py` binds to `127.0.0.1:8000` without development reload. The API is a
+single-user local service; it does not provide authentication and should not be
+exposed directly to an untrusted network.

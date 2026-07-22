@@ -27,8 +27,8 @@ The renderer package handles media import preparation and final audio rendering.
 - apply clip fade-ins and fade-outs
 - mix overlapping clips directly in memory
 - apply master fade-in / fade-out
-- optionally normalize the output
-- write the final stereo WAV file
+- optionally sample-peak normalize the output to a -1 dBFS ceiling
+- write a 44.1 kHz stereo 16-bit PCM WAV file
 
 ## Main Files
 
@@ -46,3 +46,4 @@ The renderer package handles media import preparation and final audio rendering.
 - The current renderer is **not** building a live FFmpeg filtergraph for the full mix.
 - Crossfades work by overlapping already-faded clip segments in the shared sample buffer.
 - Imported source assets are standardized to 44.1 kHz stereo WAV before rendering.
+- Integrated LUFS normalization and oversampled true-peak limiting are not implemented.

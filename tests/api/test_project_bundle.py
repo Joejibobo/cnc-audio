@@ -1,5 +1,6 @@
 import io
 import zipfile
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -18,6 +19,8 @@ def _configure_projects_root(tmp_path, monkeypatch):
 def _build_source_project(project_id: str):
     project_dir = main._project_dir(project_id)
     main._ensure_project_dirs(project_dir)
+    original_path = project_dir / "assets" / "asset-a_original.wav"
+    original_path.write_bytes(b"original-audio")
 
     project = new_project("Bundle Test")
     project.assets = [
@@ -25,20 +28,19 @@ def _build_source_project(project_id: str):
             id="asset-a",
             name="clip_a",
             path="assets/asset-a_original.wav",
-            hash="sha256:test",
+            hash=main.hash_file(str(original_path)),
             duration_seconds=1.25,
             format="wav",
         )
     ]
     main._save(project_id, project)
 
-    (project_dir / "assets" / "asset-a_original.wav").write_bytes(b"original-audio")
     (project_dir / "assets" / "asset-a.wav").write_bytes(b"converted-wav")
     (project_dir / "renders" / "latest.wav").write_bytes(b"latest-render")
     (project_dir / "downloads" / "Bundle Test.wav").write_bytes(b"named-download")
 
 
-def test_export_project_bundle_includes_project_assets_and_renders(tmp_path, monkeypatch):
+def test_export_project_bundle_includes_only_project_and_original_assets(tmp_path, monkeypatch):
     _configure_projects_root(tmp_path, monkeypatch)
     _build_source_project("source-project")
     client = TestClient(main.app)
@@ -53,14 +55,20 @@ def test_export_project_bundle_includes_project_assets_and_renders(tmp_path, mon
 
     assert "project.cnc" in members
     assert "assets/asset-a_original.wav" in members
-    assert "assets/asset-a.wav" in members
-    assert "renders/latest.wav" in members
-    assert "downloads/Bundle Test.wav" in members
+    assert "assets/asset-a.wav" not in members
+    assert "renders/latest.wav" not in members
+    assert "downloads/Bundle Test.wav" not in members
 
 
 def test_import_project_bundle_restores_project_state(tmp_path, monkeypatch):
     _configure_projects_root(tmp_path, monkeypatch)
     _build_source_project("source-project")
+    monkeypatch.setattr(
+        main,
+        "convert_to_standard_wav",
+        lambda source, destination: Path(destination).write_bytes(b"regenerated-wav"),
+    )
+    monkeypatch.setattr(main, "probe_duration", lambda path: 1.25)
     client = TestClient(main.app)
 
     export_response = client.get("/api/projects/source-project/export")
@@ -73,15 +81,15 @@ def test_import_project_bundle_restores_project_state(tmp_path, monkeypatch):
     data = import_response.json()
     assert data["project"]["name"] == "Bundle Test"
     assert len(data["assets"]) == 1
-    assert data["has_render"] is True
+    assert data["has_render"] is False
 
     imported_id = data["id"]
     imported_dir = main._project_dir(imported_id)
     assert (imported_dir / "project.cnc").exists()
     assert (imported_dir / "assets" / "asset-a_original.wav").exists()
     assert (imported_dir / "assets" / "asset-a.wav").exists()
-    assert (imported_dir / "renders" / "latest.wav").exists()
-    assert (imported_dir / "downloads" / "Bundle Test.wav").exists()
+    assert not (imported_dir / "renders" / "latest.wav").exists()
+    assert not (imported_dir / "downloads" / "Bundle Test.wav").exists()
 
 
 def test_import_project_bundle_requires_project_file(tmp_path, monkeypatch):
@@ -99,3 +107,21 @@ def test_import_project_bundle_requires_project_file(tmp_path, monkeypatch):
 
     assert response.status_code == 422
     assert "project.cnc" in response.json()["detail"]
+
+
+def test_import_project_bundle_rejects_path_traversal(tmp_path, monkeypatch):
+    _configure_projects_root(tmp_path, monkeypatch)
+    client = TestClient(main.app)
+
+    bundle = io.BytesIO()
+    with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("../escaped.txt", b"not allowed")
+        archive.writestr("project.cnc", b"{}")
+
+    response = client.post(
+        "/api/projects/import",
+        files={"file": ("unsafe.cncaudio.zip", bundle.getvalue(), "application/zip")},
+    )
+
+    assert response.status_code == 422
+    assert not (tmp_path / "escaped.txt").exists()

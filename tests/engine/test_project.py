@@ -106,3 +106,20 @@ class TestSaveLoad:
             assert data["version"] == "1.0.0"
         finally:
             os.unlink(path)
+
+    def test_save_rejects_non_finite_numbers(self, tmp_path):
+        project = new_project("Invalid Number")
+        project.parameters.target_duration_seconds = float("nan")
+
+        with pytest.raises(ValueError):
+            save_project(project, str(tmp_path / "invalid.cnc"))
+
+    def test_load_rejects_non_finite_json_constants(self, tmp_path):
+        path = tmp_path / "invalid.cnc"
+        path.write_text(
+            '{"version":"1.0.0","project":{},"assets":[],"parameters":NaN,"seed":"x"}',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError):
+            load_project(str(path))

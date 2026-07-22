@@ -61,7 +61,7 @@ class SilenceParams:
 
 @dataclass
 class GainParams:
-    normalize: bool = True
+    normalize: bool = False
     target_lufs: float = -18.0
     max_gain_db: float = 12.0
     random_variation_db: float = 0.0
@@ -117,12 +117,12 @@ class Timeline:
 
 @dataclass
 class ExportSettings:
-    format: str = "wav"           # "wav" | "mp3" | "flac" | "aac"
+    format: str = "wav"           # v0.2.1 renderer supports WAV only
     sample_rate: int = 44100
-    bit_depth: int = 24
+    bit_depth: int = 16
     normalize_output: bool = True
-    target_output_lufs: float = -14.0
-    true_peak_limit_dbtp: float = -1.0
+    target_output_lufs: float = -14.0  # Reserved for future measured LUFS support
+    true_peak_limit_dbtp: float = -1.0  # Used as a sample-peak ceiling in v0.2.1
 
 
 @dataclass

@@ -6,7 +6,7 @@ This directory is currently a **placeholder for a future extracted frontend pack
 
 There is **no standalone React frontend in production right now**.
 
-The real shipped UI for v0.2 lives here instead:
+The real shipped UI for v0.2.1 lives here instead:
 
 ```text
 packages/api/static/index.html

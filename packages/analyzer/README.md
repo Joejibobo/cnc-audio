@@ -4,7 +4,7 @@ This package is reserved for deeper audio analysis features.
 
 ## Current Status
 
-**Planned / not yet active in the main v0.2 workflow.**
+**Planned / not yet active in the main v0.2.1 workflow.**
 
 Potential analysis features include:
 

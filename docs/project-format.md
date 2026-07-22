@@ -1,203 +1,90 @@
-# CNC Audio Project Format (.cnc)
+# CNC Audio Project Format (`.cnc`)
 
-A `.cnc` file is a JSON document that fully describes a CNC Audio project. It contains everything needed to reproduce a rendered track: the asset list, generation parameters, the random seed, and the generated timeline.
+A `.cnc` file is UTF-8 JSON containing project metadata, source-media records,
+generation settings, a seed, and optionally a generated timeline. The current
+file schema version is `1.0.0`; this is independent of the app release version.
+The normative contract is [`schemas/project.schema.json`](../schemas/project.schema.json).
 
-## Design Goals
+## Top-level fields
 
-- **Reproducible** — given the same `.cnc` file and the same source audio files, the renderer always produces the same output.
-- **Non-destructive** — source audio files are never modified. All adjustments (gain, fades, trimming) are stored in the timeline and applied at render time.
-- **Editable** — individual timeline events can be locked, reordered, or replaced without re-generating the full track.
-- **Versionable** — `.cnc` files are plain JSON and can be committed to git. Media files should not be committed (see `.gitignore`).
+| Field | Required | Purpose |
+|---|---:|---|
+| `version` | yes | Project schema version (`1.0.0`) |
+| `project` | yes | Name, creation time, and layered v0.2 state |
+| `assets` | yes | Legacy alias for Songs assets |
+| `parameters` | yes | Legacy alias for Songs parameters |
+| `seed` | yes | Deterministic generation seed |
+| `timeline` | no | Generated events; absent after inputs change |
+| `export` | yes | Current renderer settings |
 
----
-
-## Top-Level Fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `version` | ✅ | Schema version (e.g. `"1.0.0"`) |
-| `project` | ✅ | Project metadata (name, timestamps) |
-| `assets` | ✅ | List of registered audio clips |
-| `parameters` | ✅ | Generation parameters |
-| `seed` | ✅ | Random seed string |
-| `timeline` | — | Generated timeline (absent until first generation) |
-| `export` | — | Export settings (format, sample rate, loudness target) |
-
----
+For backward compatibility, layered state is stored inside `project` as
+`song_assets`, `sound_assets`, `song_parameters`, `sound_parameters`, and
+`render_settings`. When these fields are absent, v0.2.1 migrates the top-level
+assets and parameters into the Songs layer in memory and saves the layered form
+on the next update.
 
 ## Assets
 
-Each asset represents one audio clip registered in the project.
-
-```json
-{
-  "id": "clip_001",
-  "name": "Drone Hit A",
-  "path": "assets/drone_hit_a.wav",
-  "hash": "sha256:a3f1...",
-  "duration_seconds": 8.3,
-  "weight": 1.5,
-  "tags": ["impact", "low"]
-}
-```
-
-- **`id`** — unique string identifier, referenced by timeline events
-- **`path`** — relative to the `.cnc` file location
-- **`hash`** — SHA-256 of the file; the renderer warns if the file has changed since import
-- **`weight`** — selection probability weight (default 1.0); higher = selected more often in weighted mode
-- **`tags`** — optional user-defined labels for filtering and grouping
-- **`analysis`** — populated if analysis has been run; includes `bpm`, `key`, `lufs`, `energy`, each with a `confidence` score
-
----
+Each asset has a safe project-local ID, display name, `assets/...` source path,
+full `sha256:<hex>` hash, positive duration, and selection weight from 0.1 to
+5. Source hashes cover the original uploaded media, not the generated WAV
+cache. Timeline clip events refer to assets by ID.
 
 ## Parameters
 
-### Hard Constraints
-These are always enforced. Generation fails with a clear error if they cannot be satisfied.
+Each layer stores:
 
-| Parameter | Description |
-|-----------|-------------|
-| `target_duration_seconds` | Exact output track length |
-| `clip_duration.min_seconds` | No clip contributes less than this duration |
-| `clip_duration.max_seconds` | No clip contributes more than this duration (longer clips are trimmed) |
-| `repetition.max_per_clip` | No clip appears more than this many times |
+- minimum and maximum source-section duration;
+- maximum uses, gap preference, consecutive-use policy, non-overlapping source
+  section policy, and repeat decay;
+- crossfade probability and bounds;
+- optional silence probability and bounds;
+- per-event gain variation and reserved loudness fields;
+- uniform, weighted, or sequential selection;
+- a duration rule: `trim_last`, `fade_last`, `pad_silence`,
+  `fill_random_clip`, or `extend_last_clip`.
 
-### Soft Preferences
-These influence selection without blocking generation.
+The seed, asset order/weights, and generation parameters determine the timeline.
+The same inputs produce the same arrangement.
 
-| Parameter | Description |
-|-----------|-------------|
-| `repetition.min_gap_clips` | Prefer at least N different clips between reuses |
-| `selection.chaos` | 0 = most constrained/predictable, 1 = most random |
-| `repetition.allow_consecutive` | Whether the same clip can play twice in a row |
-
-### Crossfade
-Crossfades overlap the tail of one clip with the head of the next. The overlap duration is picked randomly within `[min_seconds, max_seconds]` when `probability` triggers.
-
-> **Duration note:** Crossfades *reduce* the total timeline length because two clips overlap. The engine accounts for this when filling to `target_duration_seconds`.
-
-### Silence
-Silence gaps are inserted *between* clips (not during crossfades). A clip event is followed by a silence event before the next clip event.
-
-### Gain
-All gain values are non-destructive:
-1. If `normalize: true`, a per-clip `gain_db` is calculated to bring each clip toward `target_lufs`, capped at `max_gain_db`.
-2. A random variation of ±`random_variation_db` is added on top.
-3. This final `gain_db` is stored on the timeline event and applied by the renderer via FFmpeg.
-
-### Duration Rule
-How the final clip is handled to hit the exact `target_duration_seconds`:
-- `trim_last` — hard cut at exactly the right moment
-- `fade_last` *(default)* — apply a fade-out over the last 2 seconds before the cut
-- `pad_silence` — let the last clip play out naturally and pad with silence
-
-### Selection Distribution
-- `uniform` — all clips have equal probability
-- `weighted` — clips are selected proportionally to their `weight` field
-- `sequential` — clips play in the order they are listed in `assets` (loops back to start)
-
----
+Per-clip `normalize` and `target_lufs` fields remain in the schema for forward
+compatibility. v0.2.1 does not analyze imported loudness, so normalization only
+has an effect if an asset already contains LUFS analysis metadata.
 
 ## Timeline
 
-The timeline is a flat list of events in chronological order.
+A timeline has `total_duration_seconds` and ordered clip or silence events.
+A clip event records the asset ID, output position, source start/end, gain, and
+linear fade durations. A silence event records position and duration. Crossfade
+events overlap in output time; explicit silence prevents a crossfade across the
+gap.
 
-### ClipEvent
+`locked` is serialized for future editing workflows but the v0.2.1 UI does not
+offer event locking or reroll editing.
 
-```json
-{
-  "type": "clip",
-  "asset_id": "clip_001",
-  "position_seconds": 0.0,
-  "source_start_seconds": 1.5,
-  "source_end_seconds": 7.0,
-  "gain_db": -2.1,
-  "fade_in_seconds": 0.0,
-  "fade_out_seconds": 1.2,
-  "locked": false
-}
-```
+## Export settings
 
-- **`position_seconds`** — where this event starts in the output track
-- **`source_start/end_seconds`** — which portion of the source file is used (enables trimming without touching the source)
-- **`fade_in/out_seconds`** — linear fades applied at render time; crossfades are implemented as a fade-out on the ending clip + fade-in on the starting clip at the same position
-- **`locked`** — if `true`, reroll operations skip this event
-
-### SilenceEvent
-
-```json
-{
-  "type": "silence",
-  "position_seconds": 7.0,
-  "duration_seconds": 0.8,
-  "locked": false
-}
-```
-
----
-
-## Export Settings
+The v0.2.1 contract is:
 
 ```json
 {
   "format": "wav",
   "sample_rate": 44100,
-  "bit_depth": 24,
+  "bit_depth": 16,
   "normalize_output": true,
-  "target_output_lufs": -14,
+  "target_output_lufs": -14.0,
   "true_peak_limit_dbtp": -1.0
 }
 ```
 
-Final-track normalization uses FFmpeg's `loudnorm` filter with true-peak limiting. This is applied after all clip gain and fades.
+Despite the legacy field names, `target_output_lufs` is reserved and
+`true_peak_limit_dbtp` is used as a sample-peak dBFS ceiling. Integrated LUFS
+and oversampled true-peak measurement are not implemented in this release.
 
----
+## Portable bundles
 
-## Example Minimal Project
-
-```json
-{
-  "version": "1.0.0",
-  "project": {
-    "name": "Show Night 1",
-    "created_at": "2026-07-20T12:00:00Z"
-  },
-  "assets": [
-    {
-      "id": "clip_001",
-      "name": "Drone A",
-      "path": "assets/drone_a.wav",
-      "hash": "sha256:abc123",
-      "duration_seconds": 10.0,
-      "weight": 1.0
-    },
-    {
-      "id": "clip_002",
-      "name": "Stinger B",
-      "path": "assets/stinger_b.wav",
-      "hash": "sha256:def456",
-      "duration_seconds": 3.5,
-      "weight": 2.0
-    }
-  ],
-  "parameters": {
-    "target_duration_seconds": 60,
-    "clip_duration": { "min_seconds": 2.0, "max_seconds": 8.0 },
-    "repetition": { "max_per_clip": 5, "min_gap_clips": 1, "allow_consecutive": false },
-    "crossfade": { "enabled": true, "min_seconds": 0.5, "max_seconds": 1.5, "probability": 0.7 },
-    "silence": { "enabled": false },
-    "gain": { "normalize": true, "target_lufs": -18, "max_gain_db": 12, "random_variation_db": 1.5 },
-    "selection": { "distribution": "weighted", "chaos": 0.4 },
-    "duration_rule": "fade_last"
-  },
-  "seed": "show-night-1-take-3",
-  "export": {
-    "format": "wav",
-    "sample_rate": 44100,
-    "bit_depth": 24,
-    "normalize_output": true,
-    "target_output_lufs": -14,
-    "true_peak_limit_dbtp": -1.0
-  }
-}
-```
+The browser's Export Project action produces a `.cncaudio.zip` containing
+`project.cnc` and each referenced original source file. Converted WAV caches
+and renders are omitted and rebuilt locally during import. Bundle import
+rejects unsafe paths, links, duplicate/encrypted members, excessive sizes or
+counts, invalid schema data, hash mismatches, and unknown timeline asset IDs.

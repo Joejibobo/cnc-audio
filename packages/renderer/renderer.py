@@ -135,14 +135,19 @@ def render_timeline(
         if n > 0:
             buffer[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)[:, np.newaxis]
 
-    if export.normalize_output:
-        peak = float(np.max(np.abs(buffer)))
-        target_linear = 10.0 ** (export.target_output_lufs / 20.0 + 1.0)
-        if peak > 0:
-            buffer = buffer * min(target_linear / peak, 1.0)
+    if not np.all(np.isfinite(buffer)):
+        raise ValueError("Rendered audio contains non-finite samples.")
 
+    # v0.2.1 performs sample-peak normalization. This is intentionally not
+    # described as LUFS or true-peak processing: those require measured,
+    # oversampled analysis and are deferred to a later renderer revision.
     limit = 10.0 ** (export.true_peak_limit_dbtp / 20.0)
-    np.clip(buffer, -limit, limit, out=buffer)
+    peak = float(np.max(np.abs(buffer))) if len(buffer) else 0.0
+    if peak > 0 and export.normalize_output:
+        buffer *= limit / peak
+    elif peak > limit:
+        # Prevent overload without hard clipping when normalization is off.
+        buffer *= limit / peak
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     write_wav_float32(output_path, buffer)

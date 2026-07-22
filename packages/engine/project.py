@@ -1,6 +1,9 @@
 """Project file serialization and deserialization (.cnc JSON format)."""
 import hashlib
 import json
+import math
+import os
+import tempfile
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -22,6 +25,21 @@ from .models import (
 )
 
 SCHEMA_VERSION = "1.0.0"
+
+
+def _reject_json_constant(value: str):
+    raise ValueError(f"Invalid non-finite JSON number: {value}")
+
+
+def _reject_non_finite_numbers(value, path: str = "project") -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{path} contains a non-finite number.")
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _reject_non_finite_numbers(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_non_finite_numbers(item, f"{path}[{index}]")
 
 
 def _load_analysis(d: Optional[dict]) -> Optional[AnalysisResult]:
@@ -84,7 +102,7 @@ def _load_parameters(d: dict) -> Parameters:
             max_seconds=sil.get("max_seconds", 2.0),
         ),
         gain=GainParams(
-            normalize=gain.get("normalize", True),
+            normalize=gain.get("normalize", False),
             target_lufs=gain.get("target_lufs", -18.0),
             max_gain_db=gain.get("max_gain_db", 12.0),
             random_variation_db=gain.get("random_variation_db", 0.0),
@@ -121,7 +139,8 @@ def _load_event(d: dict):
 def load_project(path: str) -> Project:
     """Load a .cnc project file from disk."""
     with open(path, "r", encoding="utf-8") as f:
-        d = json.load(f)
+        d = json.load(f, parse_constant=_reject_json_constant)
+    _reject_non_finite_numbers(d)
 
     tl_data = d.get("timeline")
     timeline = None
@@ -142,7 +161,7 @@ def load_project(path: str) -> Project:
         export=ExportSettings(
             format=exp.get("format", "wav"),
             sample_rate=exp.get("sample_rate", 44100),
-            bit_depth=exp.get("bit_depth", 24),
+            bit_depth=exp.get("bit_depth", 16),
             normalize_output=exp.get("normalize_output", True),
             target_output_lufs=exp.get("target_output_lufs", -14.0),
             true_peak_limit_dbtp=exp.get("true_peak_limit_dbtp", -1.0),
@@ -271,8 +290,28 @@ def save_project(project: Project, path: str) -> None:
         "target_output_lufs": project.export.target_output_lufs,
         "true_peak_limit_dbtp": project.export.true_peak_limit_dbtp,
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(d, f, indent=2, ensure_ascii=False)
+    destination = os.path.abspath(path)
+    parent = os.path.dirname(destination) or "."
+    os.makedirs(parent, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=parent,
+            prefix=".project-",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temp_path = f.name
+            json.dump(d, f, indent=2, ensure_ascii=False, allow_nan=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, destination)
+        temp_path = None
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def hash_file(path: str) -> str:

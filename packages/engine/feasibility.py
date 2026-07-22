@@ -70,9 +70,17 @@ def check_feasibility(assets: List[Asset], params: Parameters) -> FeasibilityRes
     else:
         max_fillable = 0.0
         for asset in usable:
-            asset_cap = asset.duration_seconds  # unique content in this clip
-            if max_per is not None:
-                asset_cap = min(asset_cap, max_per * max_dur)
+            if no_repeat_sec:
+                # Unique source sections can contribute at most the asset's
+                # duration, regardless of how many selections are allowed.
+                asset_cap = asset.duration_seconds
+                if max_per is not None:
+                    asset_cap = min(asset_cap, max_per * max_dur)
+            else:
+                # Reusing source sections permits the same playable span on
+                # each allowed selection.
+                per_use = min(asset.duration_seconds, max_dur)
+                asset_cap = max_per * per_use
             max_fillable += asset_cap
 
     effective_target = target

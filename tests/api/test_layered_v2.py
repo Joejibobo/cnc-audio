@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from packages.api import main
-from packages.engine.models import Asset
+from packages.engine.models import Asset, SilenceEvent, Timeline
 from packages.engine.project import new_project, save_project
 
 
@@ -206,3 +206,67 @@ def test_generate_merges_adjacent_silence_events(tmp_path, monkeypatch):
     timeline = client.get("/api/projects/silence-merge").json()["timeline"]["events"]
     for idx in range(1, len(timeline)):
         assert not (timeline[idx - 1]["type"] == "silence" and timeline[idx]["type"] == "silence")
+
+
+def test_parameter_updates_only_invalidate_when_inputs_change(tmp_path, monkeypatch):
+    _configure_projects_root(tmp_path, monkeypatch)
+    project_id = "invalidation-test"
+    project_dir = main._project_dir(project_id)
+    main._ensure_project_dirs(project_dir)
+    project = new_project("Invalidation Test")
+    project.timeline = Timeline(
+        events=[SilenceEvent(type="silence", position_seconds=0.0, duration_seconds=60.0)],
+        total_duration_seconds=60.0,
+    )
+    main._save(project_id, project)
+    (project_dir / "renders" / "latest.wav").write_bytes(b"render")
+    client = TestClient(main.app)
+
+    layer = {
+        "clip_duration_min": 2.0,
+        "clip_duration_max": 10.0,
+        "distribution": "uniform",
+        "chaos": 1.0,
+    }
+    unchanged = client.put(
+        f"/api/projects/{project_id}/parameters",
+        json={
+            "render_settings": {
+                "target_duration_seconds": 60.0,
+                "song_gain_db": 0.0,
+                "sound_gain_db": 0.0,
+                "render_gain_db": 0.0,
+                "normalize_output": True,
+                "master_fade_in_seconds": 0.0,
+                "master_fade_out_seconds": 0.0,
+            },
+            "song_parameters": layer,
+            "sound_parameters": layer,
+        },
+    )
+
+    assert unchanged.status_code == 200
+    assert "timeline" in unchanged.json()
+    assert unchanged.json()["has_render"] is True
+
+    changed_layer = {**layer, "clip_duration_max": 9.0}
+    changed = client.put(
+        f"/api/projects/{project_id}/parameters",
+        json={
+            "render_settings": {
+                "target_duration_seconds": 60.0,
+                "song_gain_db": 0.0,
+                "sound_gain_db": 0.0,
+                "render_gain_db": 0.0,
+                "normalize_output": True,
+                "master_fade_in_seconds": 0.0,
+                "master_fade_out_seconds": 0.0,
+            },
+            "song_parameters": changed_layer,
+            "sound_parameters": layer,
+        },
+    )
+
+    assert changed.status_code == 200
+    assert "timeline" not in changed.json()
+    assert changed.json()["has_render"] is False

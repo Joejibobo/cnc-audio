@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Optional
 
 FFMPEG_SEARCH_PATHS = [
-    r"C:\Users\meirn\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.2-full_build\bin",
+    os.environ.get("CNC_AUDIO_FFMPEG_DIR", ""),
     r"C:\Program Files\ffmpeg\bin",
-    r"C:\Program Files\ffmpeg-8.1.2-full_build\bin",
 ]
+TOOL_TIMEOUT_SECONDS = int(os.environ.get("CNC_AUDIO_FFMPEG_TIMEOUT_SECONDS", "600"))
 
 
 def find_tool(name: str) -> str:
@@ -19,6 +19,8 @@ def find_tool(name: str) -> str:
     if found:
         return found
     for base in FFMPEG_SEARCH_PATHS:
+        if not base:
+            continue
         candidate = os.path.join(base, name + ".exe")
         if os.path.isfile(candidate):
             return candidate
@@ -49,6 +51,7 @@ def probe_duration(file_path: str) -> float:
         capture_output=True,
         text=True,
         check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     data = json.loads(result.stdout)
     duration = data.get("format", {}).get("duration")
@@ -70,6 +73,7 @@ def probe_info(file_path: str) -> dict:
         capture_output=True,
         text=True,
         check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     return json.loads(result.stdout)
 
@@ -91,6 +95,7 @@ def convert_to_standard_wav(src: str, dst: str) -> None:
         ],
         capture_output=True,
         text=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     if result.returncode != 0:
         raise RuntimeError(

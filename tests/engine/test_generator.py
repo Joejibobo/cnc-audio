@@ -154,6 +154,32 @@ class TestSilence:
                 assert e.duration_seconds >= 0.3 - 0.001
                 assert e.duration_seconds <= 0.8 + 0.001
 
+    def test_crossfade_never_bridges_explicit_silence(self):
+        clips = three_clips()
+        params = basic_params(target=30.0, silence=True, crossfade=True)
+        params.crossfade = CrossfadeParams(
+            enabled=True, min_seconds=0.5, max_seconds=1.0, probability=1.0
+        )
+        params.silence = SilenceParams(
+            enabled=True, probability=1.0, min_seconds=0.3, max_seconds=0.8
+        )
+
+        timeline = generate_timeline(clips, params, TEST_SEED)
+        silences = [event for event in timeline.events if event.type == "silence"]
+        assert silences
+        for silence in silences:
+            later_clips = [
+                event
+                for event in timeline.events
+                if event.type == "clip" and event.position_seconds >= silence.position_seconds
+            ]
+            if later_clips:
+                next_clip = later_clips[0]
+                assert next_clip.position_seconds >= (
+                    silence.position_seconds + silence.duration_seconds - 0.001
+                )
+                assert next_clip.fade_in_seconds == 0.0
+
 
 class TestSequential:
     def test_sequential_respects_asset_order(self):
